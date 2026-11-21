@@ -57,6 +57,21 @@
   #toast.on { opacity:1; }
   :focus-visible { outline:2px solid var(--tiktok); outline-offset:2px; }
   @media (max-width:560px){ header{grid-template-columns:1fr;} .card{display:flex;gap:10px;align-items:center;flex-wrap:wrap} .card .st{display:none} }
+
+  /* ===== شكل شات تويتش: سطر مضغوط (وقت، أزرار مود، شارات، اسم: كلام) ===== */
+  #feed { direction:ltr; gap:0; }
+  .msg { display:block; direction:ltr; text-align:left; background:transparent; border-radius:6px; border-inline-start:0; padding:3px 8px; line-height:1.75; font-size:16px; }
+  .msg:hover { background:rgba(255,255,255,.05); }
+  .msg.gift { background:linear-gradient(90deg,rgba(255,176,32,.22),transparent 75%); }
+  .msg .time { color:var(--muted); font-size:12px; margin-right:8px; }
+  .acts { display:inline-flex; position:static; gap:2px; background:none; border:0; padding:0; margin-right:6px; vertical-align:middle; }
+  .msg:hover .acts, .msg.open .acts, .msg:focus-within .acts { display:inline-flex; }
+  .acts button { padding:2px; background:none; color:#b9b3cc; border-radius:4px; display:inline-flex; opacity:.7; }
+  .acts button:hover { background:#3a3454; color:#fff; opacity:1; }
+  .acts svg { width:16px; height:16px; fill:currentColor; }
+  .name { margin-inline-end:0; }
+  .colon { margin-inline-end:6px; }
+  .txt { unicode-bidi:plaintext; }
 </style>
 </head>
 <body>
@@ -145,6 +160,12 @@ const PLAT = {
 };
 const IMG_BADGE = { moderator: 'data:image/png;base64,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', vip: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAAEI0lEQVR42s2YTWgcZRjHf887u7O7SZpstmlVKKj0y4qCtEjxoBdBD9KLYtpCtVovInpU6UnFg3oQLHjw5MmTCKJga/FiRUEFTeLamh4URavtziabbHaz2Z2Z9/EwsyFNk/2YxOB72GUHdt7f+38+30dUVWkvBYStXyv2Ta1+2Jqo0jhfRmshmPj5Zi8BLMiAQ+7hMdxDw8v7i6pq+8fCe39SefkyYbWJ/ickq7kEZ8Bl5JU9jLx0OyiIhlYxgj9d5+p93xLO+ciAg+gWWEpAGxZxDTdfuJfM4TwptSAGGuc8grkmJpcGfyv0iVXKGexii8bZMpnDeUx7ZzsfgOiW+7Ro9GGrwSqnlh4c2GwA12rnKDOro6yHyNBmmDDsBHFN579qP0AC+Er6wBDO9jQa9pqwFHEEOxfgX6pBSrqepzuQEbQZkjk4ws7PD+HscPu3VjWgdORHlr6aQbIpCNenMl2VCRWzLcXoO/sjmLBPk4WKGU5ROHMHZiwDvu24axcgQYOQ/Gt7yN5fiGCcPh3bEQgV955hCm/ti51bEgA5gjYDBh+9hW0v3BrBJI0yI2CVoVO7GDy5C2366x7MdPKb9O5BRt/ej6QERJIXXonURmH0zb24d4+gS+GaBzTr+Y2khcKZA6Ruy0Uym00oqKo4N2UovHsnZtCBwN5wSLOm34SWkdO7yT2yIzKVbFL+NpE/ZR8YJf/6XlTb75ZOJovKh7Pdvf50m7xMwUWMYWU7tjaQAo5h9sVpau9fWY6STVlxlNY/usbs8xejdmNlml4XyIAGysxzF6l/8PfmQMUwi5+UmDlVxNZtlJa1lyhTkJSJoJ69yOKHVzcGFcM0zpUpP1XE1oKottl+8pDVCKphKT9TZPHja8mg2jBfzOCdmMLO+4jrrFv9TdeWIW2wi5by00Uan3n9QcUwSxcqlE9MYSudYboDtZVyDbYa4j35E0vnZ3qDasN8U8E7PklYaiGZzjC9AcUvF9dgKz7eiSmWvpztDBXDNL+fp3xsivCfJpJ1elK29/xrFXEdwnIL7/gUza8ra0PFMK2JKt7RSYK/Gj3D9AfUhso6hFeblI5N0fxu/nqoNkyxRunxSYLfG137n40Btc2XdQivLOEdnaT1QzXqDFoWHMH/pY43PkHwa70vZZIDrYAK/mjgjU/SmqgirsGfrlMan8CfrvWtzMaAVkD5v9UpP1Fk8dMS5ZNF/J8XEsPceA1KAuWmaF2q4T02iYaR4yeCkdUK2YRQGvVOCNF3slvSchkxy2TDKVBJdoXWHi+a613HVDD5yFgpiTXKPTSGM5KJas0WDxtM1mXgyM7Yh0wkc/quIUbf2Efl9GXC+a0bx5hcmvyre3APDsfjmHbLFreTreICjbMeupBgYCX92UpyDtkHC2QO51cNrP5HI71/ARGp/jHkHC+nAAAAAElFTkSuQmCC' };
 const EMOJI_BADGE = { broadcaster: '📺', moderator: '🛡️', vip: '💎', subscriber: '⭐' };
+const ICON = {
+  ban: '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.9 7.9 0 014 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.9 7.9 0 0120 12c0 4.42-3.58 8-8 8z"/></svg>',
+  clock: '<svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>',
+  mega: '<svg viewBox="0 0 24 24"><path d="M3 10v4a1 1 0 001 1h2l5 4V5L6 9H4a1 1 0 00-1 1zm13.5 2A4.5 4.5 0 0014 8v8a4.5 4.5 0 002.5-4zM14 3.2v2.1a7 7 0 010 13.4v2.1a9 9 0 000-17.6z"/></svg>',
+};
 const BADGES = {};
 const STATIC_BADGES = {
   'moderator/1': 'https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/1',
@@ -152,7 +173,7 @@ const STATIC_BADGES = {
   'broadcaster/1': 'https://static-cdn.jtvnw.net/badges/v1/5527c58c-fb7d-422d-b71b-f309dcb85cc1/1',
 };
 function addSets(sets) {
-  for (const k of ['broadcaster', 'moderator', 'vip', 'subscriber'])
+  for (const k of ['broadcaster', 'moderator', 'lead_moderator', 'vip', 'subscriber'])
     for (const [v, o] of Object.entries(sets?.[k]?.versions || {})) BADGES[k + '/' + v] = o.image_url_1x;
 }
 async function loadBadges() {
@@ -169,6 +190,10 @@ function badgesHtml(d) {
     let [set, ver] = String(b).split('/');
     if (set === 'founder') set = 'subscriber';
     if (set === 'subscriber') { out.push('<span class="sub-tag">مشترك</span>'); continue; }
+    if (set === 'lead_moderator') {
+      const url = d.source === 'twitch' && BADGES['lead_moderator/1'];
+      out.push(`<img class="bdg" src="${url ? esc(url) : IMG_BADGE.moderator}" alt="lead_moderator" title="lead moderator">`); continue;
+    }
     if (IMG_BADGE[set]) { out.push(`<img class="bdg" src="${IMG_BADGE[set]}" alt="${set}" title="${set}">`); continue; }
     if (set === 'broadcaster') {
       const url = d.source === 'twitch' && (BADGES['broadcaster/1'] || BADGES['broadcaster/0']);
@@ -196,21 +221,21 @@ function add(d, cls, html, extra = {}) {
   const el = document.createElement('div');
   el.className = 'msg ' + cls; el.dataset.src = d.source;
   Object.assign(el.dataset, extra);
-  const av = d.avatar ? `<div class="av" style="background-image:url('${esc(d.avatar)}')"></div>` : '';
-  const acts = extra.uid ? `<div class="acts">
-      <button data-act="to">تايم أوت 10د</button><button data-act="so">شوت أوت</button>
-      <button data-act="del">حذف</button><button data-act="ban" class="danger">باند</button></div>` : '';
-  el.innerHTML = `${av}<div><span class="plat" style="color:var(--${d.source})" title="${NAMES[d.source]}">${PLAT[d.source]}</span>${html}</div>${acts}`;
+  const t = new Date(+extra.ts || d.ts || Date.now()).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: false });
+  const acts = extra.uid ? `<span class="acts">
+      <button data-act="ban" title="حظر">${ICON.ban}</button><button data-act="to" title="تايم أوت 10 دقايق">${ICON.clock}</button>
+      <button data-act="del" title="حذف الرسالة">${ICON.trash}</button><button data-act="so" title="شوت أوت">${ICON.mega}</button></span>` : '';
+  el.innerHTML = `<span class="time">${t}</span>${acts}<span class="plat" style="color:var(--${d.source})" title="${NAMES[d.source]}">${PLAT[d.source]}</span>${html}`;
   feed.appendChild(el);
   while (feed.children.length > 300) feed.removeChild(feed.firstChild);
   if (near) feed.scrollTop = feed.scrollHeight;
 }
-const nm = d => `<span class="name"${d.color ? ` style="color:${esc(d.color)}"` : ''}>${esc(d.name)}</span>`;
+const nm = (d, colon) => `<span class="name"${d.color ? ` style="color:${esc(d.color)}"` : ''}>${esc(d.name)}</span>` + (colon ? '<span class="colon">:</span>' : '');
 
 function render(d) {
   const n = nm(d);
   switch (d.type) {
-    case 'chat': add(d, 'chat', badgesHtml(d) + n + (d.source === 'kick' ? fmtKick(d.text) : linkify(d.text))); break;
+    case 'chat': add(d, 'chat', badgesHtml(d) + nm(d, 1) + '<span class="txt">' + (d.source === 'kick' ? fmtKick(d.text) : linkify(d.text)) + '</span>'); break;
     case 'gift': add(d, 'gift', `${n}<span class="big">أرسل ${esc(d.gift)} ×${d.count}</span> ${d.icon ? `<img class="gi" src="${esc(d.icon)}" alt="">` : ''}<span class="ev">(${d.diamonds} 💎)</span>`); break;
     case 'follow': add(d, 'follow', `${n}<span class="ev">تابع الحساب</span>`); break;
     case 'share': add(d, 'share', `${n}<span class="ev">شارك البث</span>`); break;
@@ -258,8 +283,8 @@ function startTwitchChat() {
     }
     const name = tags['display-name'] || m[2];
     const d = { source: 'twitch', color: tags.color || '', name, badges: (tags.badges || '').split(',').filter(Boolean) };
-    add(d, 'chat', badgesHtml(d) + nm(d) + fmtTwitch(m[4] || '', tags.emotes),
-      { uid: tags['user-id'], login: m[2], mid: tags.id });
+    add(d, 'chat', badgesHtml(d) + nm(d, 1) + '<span class="txt">' + fmtTwitch(m[4] || '', tags.emotes) + '</span>',
+      { uid: tags['user-id'], login: m[2], mid: tags.id, ts: tags['tmi-sent-ts'] });
   };
   ws.onmessage = ev => ev.data.split('\r\n').filter(Boolean).forEach(line => {
     if (line.startsWith('PING')) return ws.send('PONG :tmi.twitch.tv');
@@ -354,6 +379,7 @@ feed.addEventListener('click', async e => {
   const msg = e.target.closest('.msg'); if (!msg) return;
   const b = e.target.closest('button[data-act]');
   if (!b) { if (!e.target.closest('a') && msg.dataset.uid) msg.classList.toggle('open'); return; }
+  if (!tw.userId) { toast('اربط حساب تويتش أول (الزر اللي تحت)'); return; }
   try { await doAction(b.dataset.act, msg); } catch (err) { toast(err.message); }
 });
 
