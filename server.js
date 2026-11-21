@@ -52,7 +52,12 @@ function ttConnect() {
   tt = new TikTokLiveConnection(CFG.tiktok, CFG.tiktokSignKey ? { signApiKey: CFG.tiktokSignKey } : {});
   const ev = (name, fallback) => (WebcastEvent && WebcastEvent[name]) || fallback;
 
-  tt.on(ev('CHAT', 'chat'), d => emit({ ...tu(d), type: 'chat', text: d.comment }));
+  let dbg = 0;
+  tt.on(ev('CHAT', 'chat'), d => {
+    if (dbg < 2) { dbg++; try { console.log('tiktok chat raw:', JSON.stringify(d).slice(0, 700)); } catch {} }
+    const text = d.comment || d.content || d.msg || d.text || d.message?.content || '';
+    emit({ ...tu(d), type: 'chat', text });
+  });
   tt.on(ev('GIFT', 'gift'), d => {
     const g = d.giftDetails || d;
     if (g.giftType === 1 && !d.repeatEnd) return;
