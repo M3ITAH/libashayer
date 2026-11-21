@@ -66,20 +66,34 @@ ttConnect();
 
 // ---------------- Kick ----------------
 let kickId = CFG.kickRoom;
-let kickHist = false;
-// آخر رسائل كيك (محاولة، وإذا كيك رفض ما يصير شي)
-async function kickHistory() {
+const kickSeen = new Set();
+let kickPollOk = null;
+const kickHeaders = { 'user-agent': 'Mozilla/5.0', accept: 'application/json' };
+const kickMsg = d => ({ source: 'kick', type: 'chat', id: d.sender?.username, name: d.sender?.username,
+  color: d.sender?.identity?.color, text: d.content, badges: (d.sender?.identity?.badges || []).map(b => b.type),
+  ts: d.created_at ? new Date(d.created_at).getTime() : undefined });
+// قراءة شات كيك كل 4 ثواني (تشتغل حتى لو البث أوفلاين)
+async function kickPoll() {
+  if (!kickId) return;
   try {
-    const r = await fetch(`https://kick.com/api/v2/chatrooms/${kickId}/messages`, {
-      headers: { 'user-agent': 'Mozilla/5.0', accept: 'application/json' },
-    });
+    const r = await fetch(`https://kick.com/api/v2/chatrooms/${kickId}/messages`, { headers: kickHeaders });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const msgs = ((await r.json()).data?.messages || [])
-      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).slice(-50);
-    for (const d of msgs) emit({ source: 'kick', type: 'chat', id: d.sender?.username, name: d.sender?.username,
-      color: d.sender?.identity?.color, text: d.content, badges: (d.sender?.identity?.badges || []).map(b => b.type) });
-  } catch (e) { console.log('kick history:', e.message); }
+    const msgs = ((await r.json()).data?.messages || []).sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
+    const first = kickSeen.size === 0;
+    for (const d of msgs.slice(first ? -50 : 0)) {
+      if (!d.id || kickSeen.has(d.id)) continue;
+      kickSeen.add(d.id);
+      emit(kickMsg(d));
+    }
+    if (kickSeen.size > 600) { const keep = [...kickSeen].slice(-200); kickSeen.clear(); keep.forEach(x => kickSeen.add(x)); }
+    if (kickPollOk !== true) { kickPollOk = true; stat('kick', { status: 'متصل (قراءة كل 4 ثواني)' }); }
+  } catch (e) {
+    console.log('kick poll:', e.message);
+    if (kickPollOk !== false) { kickPollOk = false; stat('kick', { status: 'تعذر قراءة شات كيك (' + e.message + ')' }); }
+  }
 }
+setInterval(kickPoll, 4000);
+
 async function kickInfo() {
   try {
     const r = await fetch(`https://kick.com/api/v2/channels/${CFG.kick}`, {
@@ -88,7 +102,6 @@ async function kickInfo() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const j = await r.json();
     if (!kickId) kickId = String(j.chatroom?.id || '');
-    if (!kickHist && kickId) { kickHist = true; kickHistory(); }
     stat('kick', { followers: j.followers_count, viewers: j.livestream?.viewer_count ?? 0, live: !!j.livestream });
   } catch (e) {
     console.log('kick api:', e.message);
@@ -103,14 +116,13 @@ function kickConnect() {
     const data = () => { try { return JSON.parse(p.data); } catch { return {}; } };
     if (p.event === 'pusher:connection_established') {
       ws.send(JSON.stringify({ event: 'pusher:subscribe', data: { auth: '', channel: `chatrooms.${kickId}.v2` } }));
-      stat('kick', { status: 'متصل' });
     } else if (p.event === 'pusher:ping') {
       ws.send(JSON.stringify({ event: 'pusher:pong', data: {} }));
     } else if (p.event === 'App\\Events\\ChatMessageEvent') {
       const d = data();
-      emit({ source: 'kick', type: 'chat', id: d.sender?.username, name: d.sender?.username,
-        color: d.sender?.identity?.color, text: d.content,
-        badges: (d.sender?.identity?.badges || []).map(b => b.type) });
+      if (d.id && kickSeen.has(d.id)) return;
+      if (d.id) kickSeen.add(d.id);
+      emit(kickMsg(d));
     } else if (p.event === 'App\\Events\\SubscriptionEvent') {
       emit({ source: 'kick', type: 'sub', name: data().username });
     } else if (p.event === 'App\\Events\\GiftedSubscriptionsEvent') {
@@ -120,13 +132,12 @@ function kickConnect() {
   });
   ws.on('close', code => {
     if (code === 4001) {
-      stat('kick', { status: 'كيك أوقف طريقة الاتصال القديمة (4001) — شات كيك غير متاح حالياً' });
+      console.log('kick ws: 4001 (الطريقة القديمة متوقفة)، الاعتماد على القراءة الدورية');
       return setTimeout(kickConnect, 600000);
     }
-    stat('kick', { status: 'انقطع الاتصال (' + code + ')، أعيد المحاولة' });
     setTimeout(kickConnect, 5000);
   });
-  ws.on('error', e => { console.log('kick ws:', e.message); stat('kick', { status: 'خطأ اتصال: ' + e.message }); });
+  ws.on('error', e => console.log('kick ws:', e.message));
 }
 kickInfo().then(kickConnect);
 setInterval(kickInfo, 30000);
