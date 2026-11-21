@@ -18,6 +18,7 @@ const history = [];
 const stats = { tiktok: {}, twitch: {}, kick: {} };
 
 function emit(o) {
+  o.ts = o.ts || Date.now();
   history.push(o); if (history.length > 100) history.shift();
   const line = `data: ${JSON.stringify(o)}\n\n`;
   for (const r of clients) r.write(line);
@@ -117,7 +118,14 @@ function kickConnect() {
       emit({ source: 'kick', type: 'subgift', name: d.gifter_username, count: (d.gifted_usernames || []).length });
     }
   });
-  ws.on('close', code => { stat('kick', { status: 'انقطع الاتصال (' + code + ')، أعيد المحاولة' }); setTimeout(kickConnect, 5000); });
+  ws.on('close', code => {
+    if (code === 4001) {
+      stat('kick', { status: 'كيك أوقف طريقة الاتصال القديمة (4001) — شات كيك غير متاح حالياً' });
+      return setTimeout(kickConnect, 600000);
+    }
+    stat('kick', { status: 'انقطع الاتصال (' + code + ')، أعيد المحاولة' });
+    setTimeout(kickConnect, 5000);
+  });
   ws.on('error', e => { console.log('kick ws:', e.message); stat('kick', { status: 'خطأ اتصال: ' + e.message }); });
 }
 kickInfo().then(kickConnect);
