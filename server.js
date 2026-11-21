@@ -18,7 +18,7 @@ const history = [];
 const stats = { tiktok: {}, twitch: {}, kick: {} };
 
 function emit(o) {
-  history.push(o); if (history.length > 30) history.shift();
+  history.push(o); if (history.length > 100) history.shift();
   const line = `data: ${JSON.stringify(o)}\n\n`;
   for (const r of clients) r.write(line);
 }
@@ -30,7 +30,10 @@ function stat(src, patch) {
 
 // ---------------- TikTok ----------------
 const tt = new WebcastPushConnection(CFG.tiktok);
-const tu = d => ({ source: 'tiktok', id: d.uniqueId, name: d.nickname || d.uniqueId, avatar: d.profilePictureUrl });
+const tu = d => ({
+  source: 'tiktok', id: d.uniqueId, name: d.nickname || d.uniqueId, avatar: d.profilePictureUrl,
+  badges: [d.isModerator && 'moderator', d.isSubscriber && 'subscriber'].filter(Boolean),
+});
 function ttConnect() {
   stat('tiktok', { status: 'جاري الاتصال...' });
   tt.connect().then(s => {
@@ -62,6 +65,20 @@ ttConnect();
 
 // ---------------- Kick ----------------
 let kickId = CFG.kickRoom;
+let kickHist = false;
+// آخر رسائل كيك (محاولة، وإذا كيك رفض ما يصير شي)
+async function kickHistory() {
+  try {
+    const r = await fetch(`https://kick.com/api/v2/chatrooms/${kickId}/messages`, {
+      headers: { 'user-agent': 'Mozilla/5.0', accept: 'application/json' },
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const msgs = ((await r.json()).data?.messages || [])
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).slice(-50);
+    for (const d of msgs) emit({ source: 'kick', type: 'chat', id: d.sender?.username, name: d.sender?.username,
+      color: d.sender?.identity?.color, text: d.content, badges: (d.sender?.identity?.badges || []).map(b => b.type) });
+  } catch (e) { console.log('kick history:', e.message); }
+}
 async function kickInfo() {
   try {
     const r = await fetch(`https://kick.com/api/v2/channels/${CFG.kick}`, {
@@ -70,6 +87,7 @@ async function kickInfo() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const j = await r.json();
     if (!kickId) kickId = String(j.chatroom?.id || '');
+    if (!kickHist && kickId) { kickHist = true; kickHistory(); }
     stat('kick', { followers: j.followers_count, viewers: j.livestream?.viewer_count ?? 0, live: !!j.livestream });
   } catch (e) {
     console.log('kick api:', e.message);
@@ -90,7 +108,8 @@ function kickConnect() {
     } else if (p.event === 'App\\Events\\ChatMessageEvent') {
       const d = data();
       emit({ source: 'kick', type: 'chat', id: d.sender?.username, name: d.sender?.username,
-        color: d.sender?.identity?.color, text: d.content });
+        color: d.sender?.identity?.color, text: d.content,
+        badges: (d.sender?.identity?.badges || []).map(b => b.type) });
     } else if (p.event === 'App\\Events\\SubscriptionEvent') {
       emit({ source: 'kick', type: 'sub', name: data().username });
     } else if (p.event === 'App\\Events\\GiftedSubscriptionsEvent') {
@@ -98,8 +117,8 @@ function kickConnect() {
       emit({ source: 'kick', type: 'subgift', name: d.gifter_username, count: (d.gifted_usernames || []).length });
     }
   });
-  ws.on('close', () => { stat('kick', { status: 'انقطع الاتصال' }); setTimeout(kickConnect, 5000); });
-  ws.on('error', () => {});
+  ws.on('close', code => { stat('kick', { status: 'انقطع الاتصال (' + code + ')، أعيد المحاولة' }); setTimeout(kickConnect, 5000); });
+  ws.on('error', e => { console.log('kick ws:', e.message); stat('kick', { status: 'خطأ اتصال: ' + e.message }); });
 }
 kickInfo().then(kickConnect);
 setInterval(kickInfo, 30000);
