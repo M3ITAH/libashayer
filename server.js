@@ -58,7 +58,9 @@ function ttConnect() {
     const text = d.comment || d.content || d.msg || d.text || d.message?.content || '';
     emit({ ...tu(d), type: 'chat', text });
   });
+  let gdbg = 0;
   tt.on(ev('GIFT', 'gift'), d => {
+    if (gdbg < 2) { gdbg++; try { console.log('tiktok gift raw:', JSON.stringify(d).slice(0, 900)); } catch {} }
     const g = d.giftDetails || d;
     if (g.giftType === 1 && !d.repeatEnd) return;
     const n = d.repeatCount || 1;
@@ -169,6 +171,32 @@ function kickConnect() {
 kickInfo().then(kickConnect);
 setInterval(kickInfo, 30000);
 
+// ---------------- صور الحسابات (تويتش + كيك) ----------------
+const avCache = new Map();
+function getAvatar(src, name) {
+  if (!name || (src !== 'twitch' && src !== 'kick')) return Promise.resolve('');
+  const key = src + ':' + name.toLowerCase();
+  if (!avCache.has(key)) {
+    if (avCache.size > 3000) avCache.clear();
+    const p = (async () => {
+      try {
+        if (src === 'twitch') {
+          const t = (await (await fetch('https://decapi.me/twitch/avatar/' + encodeURIComponent(name))).text()).trim();
+          return /^https?:\/\//.test(t) ? t : '';
+        }
+        const slug = name.toLowerCase().replace(/_/g, '-');
+        const r = await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(slug)}`, { headers: kickHeaders });
+        if (!r.ok) return '';
+        const j = await r.json();
+        return j.user?.profile_pic || '';
+      } catch { return ''; }
+    })();
+    avCache.set(key, p);
+    p.then(u => { if (!u) setTimeout(() => avCache.delete(key), 300000); });
+  }
+  return avCache.get(key);
+}
+
 // ---------------- HTTP ----------------
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -179,6 +207,13 @@ http.createServer((req, res) => {
     clients.add(res);
     req.on('close', () => clients.delete(res));
     return;
+  }
+  if (url.pathname === '/avatar') {
+    const src = url.searchParams.get('src') || '', name = (url.searchParams.get('name') || '').slice(0, 60);
+    return getAvatar(src, name).then(u => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' });
+      res.end(JSON.stringify({ url: u }));
+    });
   }
   if (url.pathname === '/config') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
