@@ -3,7 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
-const { WebcastPushConnection } = require('tiktok-live-connector');
+const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
 
 const CFG = {
   tiktok: (process.env.TIKTOK_USER || 'lb10.q').replace('@', ''),
@@ -11,6 +11,7 @@ const CFG = {
   kick: process.env.KICK_CHANNEL || 'lbashayer',
   kickRoom: process.env.KICK_CHATROOM_ID || '',
   twitchClientId: process.env.TWITCH_CLIENT_ID || '',
+  tiktokSignKey: process.env.TIKTOK_SIGN_API_KEY || '',
 };
 
 const clients = new Set();
@@ -30,13 +31,47 @@ function stat(src, patch) {
 }
 
 // ---------------- TikTok ----------------
-const tt = new WebcastPushConnection(CFG.tiktok);
-const tu = d => ({
-  source: 'tiktok', id: d.uniqueId, name: d.nickname || d.uniqueId, avatar: d.profilePictureUrl,
-  badges: [d.isModerator && 'moderator', d.isSubscriber && 'subscriber'].filter(Boolean),
-});
+let tt = null;
+let ttTimer = null;
+const tu = d => {
+  const u = d.user || d;
+  const pic = u.profilePicture;
+  return {
+    source: 'tiktok', id: u.uniqueId, name: u.nickname || u.uniqueId,
+    avatar: (pic?.urls || pic?.url || [])[0] || u.profilePictureUrl,
+    badges: [u.isModerator && 'moderator', u.isSubscriber && 'subscriber'].filter(Boolean),
+  };
+};
+function ttRetry(ms) {
+  clearTimeout(ttTimer);
+  ttTimer = setTimeout(ttConnect, ms);
+}
 function ttConnect() {
   stat('tiktok', { status: 'جاري الاتصال...' });
+  if (tt) { try { tt.removeAllListeners(); tt.disconnect(); } catch {} }
+  tt = new TikTokLiveConnection(CFG.tiktok, CFG.tiktokSignKey ? { signApiKey: CFG.tiktokSignKey } : {});
+  const ev = (name, fallback) => (WebcastEvent && WebcastEvent[name]) || fallback;
+
+  tt.on(ev('CHAT', 'chat'), d => emit({ ...tu(d), type: 'chat', text: d.comment }));
+  tt.on(ev('GIFT', 'gift'), d => {
+    const g = d.giftDetails || d;
+    if (g.giftType === 1 && !d.repeatEnd) return;
+    const n = d.repeatCount || 1;
+    emit({ ...tu(d), type: 'gift', gift: g.giftName, count: n,
+      diamonds: (g.diamondCount || 0) * n,
+      icon: g.giftPictureUrl || g.giftImage?.imageUrl || g.icon?.urls?.[0] });
+  });
+  tt.on(ev('FOLLOW', 'follow'), d => emit({ ...tu(d), type: 'follow' }));
+  tt.on(ev('SHARE', 'share'), d => emit({ ...tu(d), type: 'share' }));
+  tt.on(ev('SUBSCRIBE', 'subscribe'), d => emit({ ...tu(d), type: 'sub' }));
+  tt.on(ev('MEMBER', 'member'), d => emit({ ...tu(d), type: 'join' }));
+  tt.on(ev('ROOM_USER', 'roomUser'), d => stat('tiktok', { viewers: d.viewerCount, live: true }));
+  tt.on(ev('STREAM_END', 'streamEnd'), () => stat('tiktok', { status: 'انتهى البث', live: false }));
+  tt.on((ControlEvent && ControlEvent.DISCONNECTED) || 'disconnected', () => {
+    stat('tiktok', { status: 'انقطع الاتصال', live: false });
+    ttRetry(5000);
+  });
+
   tt.connect().then(s => {
     stat('tiktok', {
       status: 'متصل', live: true,
@@ -46,22 +81,9 @@ function ttConnect() {
   }).catch(e => {
     console.log('tiktok:', e.message || e);
     stat('tiktok', { status: 'البث غير شغال، أعيد المحاولة...', live: false });
-    setTimeout(ttConnect, 15000);
+    ttRetry(15000);
   });
 }
-tt.on('chat', d => emit({ ...tu(d), type: 'chat', text: d.comment }));
-tt.on('gift', d => {
-  if (d.giftType === 1 && !d.repeatEnd) return;
-  emit({ ...tu(d), type: 'gift', gift: d.giftName, count: d.repeatCount || 1,
-    diamonds: (d.diamondCount || 0) * (d.repeatCount || 1), icon: d.giftPictureUrl });
-});
-tt.on('follow', d => emit({ ...tu(d), type: 'follow' }));
-tt.on('share', d => emit({ ...tu(d), type: 'share' }));
-tt.on('subscribe', d => emit({ ...tu(d), type: 'sub' }));
-tt.on('member', d => emit({ ...tu(d), type: 'join' }));
-tt.on('roomUser', d => stat('tiktok', { viewers: d.viewerCount, live: true }));
-tt.on('streamEnd', () => stat('tiktok', { status: 'انتهى البث', live: false }));
-tt.on('disconnected', () => { stat('tiktok', { status: 'انقطع الاتصال', live: false }); setTimeout(ttConnect, 5000); });
 ttConnect();
 
 // ---------------- Kick ----------------
@@ -163,3 +185,7 @@ http.createServer((req, res) => {
     res.end(buf);
   });
 }).listen(process.env.PORT || 3000, () => console.log('جاهز على المنفذ', process.env.PORT || 3000));
+
+// ما نخلي أي خطأ غير متوقع من مكتبة تيك توك يطيّح السيرفر كله
+process.on('unhandledRejection', e => console.log('unhandledRejection:', e?.message || e));
+process.on('uncaughtException', e => console.log('uncaughtException:', e?.message || e));
