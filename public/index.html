@@ -77,6 +77,26 @@
   .tag.vip { background:#5a0a4d; color:#ff6be6; }
   .tag.sub { color:var(--gift); }
   .tag.owner { background:#5a1420; color:#ff8a98; }
+
+  /* ===== صور الحسابات ===== */
+  .av { width:22px; height:22px; border-radius:50%; object-fit:cover; background:#3a3550; vertical-align:middle; margin-inline-end:6px; flex:none; }
+  /* ===== دخول البث ===== */
+  .msg.join { opacity:.8; }
+  #feed.nojoin .msg.join { display:none; }
+  /* ===== الهدايا حسب القيمة (t0 أصغر شي ... t4 أكبر شي) ===== */
+  .msg.gift { padding:5px 8px; }
+  .gift .cnt { color:var(--gift); font-weight:700; margin-inline-end:4px; }
+  .gift .gi { width:30px; height:30px; vertical-align:middle; margin-inline-end:4px; }
+  .gift .ge { font-size:20px; vertical-align:middle; margin-inline-end:4px; }
+  .msg.gift.t1 { background:linear-gradient(90deg,rgba(255,176,32,.30),transparent 80%); }
+  .msg.gift.t2 { background:linear-gradient(90deg,rgba(255,140,40,.42),transparent 85%); border-inline-start:4px solid #ff8c28; font-size:18px; }
+  .msg.gift.t2 .gi { width:38px; height:38px; }
+  .msg.gift.t3 { background:linear-gradient(90deg,rgba(255,79,163,.45),rgba(255,176,32,.22) 60%,transparent); border-inline-start:5px solid #ff4fa3; font-size:20px; padding:8px 10px; margin:4px 0; }
+  .msg.gift.t3 .gi { width:48px; height:48px; }
+  .msg.gift.t4 { background:linear-gradient(90deg,rgba(255,50,120,.6),rgba(255,176,32,.35) 60%,transparent); border-inline-start:6px solid #ff2d78; font-size:23px; padding:10px 12px; margin:6px 0; animation:gpulse 1.6s ease-in-out infinite; }
+  .msg.gift.t4 .gi { width:60px; height:60px; }
+  @keyframes gpulse { 50% { box-shadow:0 0 18px rgba(255,45,120,.65); } }
+  @media (prefers-reduced-motion:reduce){ .msg.gift.t4 { animation:none; } }
 </style>
 </head>
 <body>
@@ -93,6 +113,7 @@
     <button data-pos="left" aria-pressed="false">يسار</button>
     <button data-pos="full" aria-pressed="false">كامل</button>
     <button id="hist" aria-pressed="true" title="عرض آخر رسائل الشات حتى لو البث أوفلاين">السجل</button>
+    <button id="joins" aria-pressed="true" title="إظهار/إخفاء من يدخل بث تيك توك">الدخول</button>
   </div>
 </nav>
 <main id="feed" data-f="all" aria-live="polite"></main>
@@ -206,7 +227,7 @@ function badgesHtml(d) {
 // ---------- مكان الشات ----------
 function setPos(p) {
   document.body.dataset.pos = p;
-  document.querySelectorAll('#pos button').forEach(x => x.setAttribute('aria-pressed', x.dataset.pos === p));
+  document.querySelectorAll('#pos button[data-pos]').forEach(x => x.setAttribute('aria-pressed', x.dataset.pos === p));
   store.set('chat_pos', p);
 }
 $('#pos').onclick = e => { const b = e.target.closest('button[data-pos]'); if (b) setPos(b.dataset.pos); };
@@ -216,17 +237,55 @@ setPos(['right', 'left', 'full'].includes(store.get('chat_pos')) ? store.get('ch
 
 // ---------- الفيد ----------
 const feed = $('#feed');
+
+// دخول البث: إظهار/إخفاء
+function setJoins(on) { feed.classList.toggle('nojoin', !on); $('#joins').setAttribute('aria-pressed', on); store.set('joins', on ? '1' : '0'); }
+$('#joins').onclick = () => setJoins(feed.classList.contains('nojoin'));
+setJoins(store.get('joins') !== '0');
+const joined = new Map();
+
+// صور الحسابات (تيك توك تجي من السيرفر، تويتش وكيك نجيبها من السيرفر)
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+const AV = new Map();
+function avatarUrl(src, name) {
+  const k = src + ':' + name.toLowerCase();
+  if (!AV.has(k)) AV.set(k, fetch(`/avatar?src=${src}&name=${encodeURIComponent(name)}`).then(r => r.json()).then(j => j.url || '').catch(() => ''));
+  return AV.get(k);
+}
+function avatarHtml(d, extra) {
+  if (d.source === 'tiktok') return d.avatar ? `<img class="av" src="${esc(d.avatar)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
+  const n = d.source === 'twitch' ? extra.login : d.name;
+  return n ? `<img class="av" src="${BLANK}" alt="" data-s="${d.source}" data-n="${esc(n)}">` : '';
+}
+
+// أسماء الهدايا بالعربي + إيموجي، والمستوى حسب القيمة
+const GIFTS = [
+  [/rose/i, '🌹', 'وردة'], [/lion/i, '🦁', 'أسد'], [/universe/i, '🌌', 'يونيفرس'], [/galaxy/i, '🌠', 'قالاكسي'],
+  [/finger heart/i, '🫰', 'قلب الأصابع'], [/doughnut|donut/i, '🍩', 'دونات'], [/perfume/i, '🧴', 'عطر'],
+  [/corgi/i, '🐶', 'كورجي'], [/confetti/i, '🎉', 'كونفيتي'], [/sports car/i, '🏎️', 'سيارة سبورت'],
+  [/money gun/i, '💸', 'مسدس الفلوس'], [/crown/i, '👑', 'تاج'], [/whale/i, '🐋', 'حوت'], [/dragon/i, '🐉', 'تنين'],
+  [/castle/i, '🏰', 'قلعة'], [/rocket/i, '🚀', 'صاروخ'], [/panda/i, '🐼', 'باندا'], [/ice cream/i, '🍦', 'آيس كريم'],
+  [/swan/i, '🦢', 'بجعة'], [/heart/i, '💖', 'قلب'], [/diamond|gem/i, '💎', 'جوهرة'], [/tiktok/i, '🎵', 'تيك توك'],
+];
+function giftInfo(name) {
+  const g = GIFTS.find(x => x[0].test(name || ''));
+  return g ? { emoji: g[1], ar: g[2] } : { emoji: '🎁', ar: name || 'هدية' };
+}
+// غيّر الأرقام هنا لو تبي المستويات تتغير
+const tier = n => n >= 10000 ? 't4' : n >= 1000 ? 't3' : n >= 100 ? 't2' : n >= 10 ? 't1' : 't0';
+
 function add(d, cls, html, extra = {}) {
   const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
   const el = document.createElement('div');
   el.className = 'msg ' + cls; el.dataset.src = d.source;
   Object.assign(el.dataset, extra);
-  const t = new Date(+extra.ts || d.ts || Date.now()).toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit', hour12: false });
   const acts = extra.uid ? `<span class="acts">
       <button data-act="ban" title="حظر">${ICON.ban}</button><button data-act="to" title="تايم أوت 10 دقايق">${ICON.clock}</button>
       <button data-act="del" title="حذف الرسالة">${ICON.trash}</button><button data-act="so" title="شوت أوت">${ICON.mega}</button></span>` : '';
-  el.innerHTML = `<span class="time">${t}</span>${acts}<span class="plat" style="color:var(--${d.source})" title="${NAMES[d.source]}">${PLAT[d.source]}</span>${html}`;
+  el.innerHTML = `${acts}<span class="plat" style="color:var(--${d.source})" title="${NAMES[d.source]}">${PLAT[d.source]}</span>${avatarHtml(d, extra)}${html}`;
   feed.appendChild(el);
+  const im = el.querySelector('img.av[data-n]');
+  if (im) avatarUrl(im.dataset.s, im.dataset.n).then(u => { if (u) { im.onerror = () => im.remove(); im.src = u; } });
   while (feed.children.length > 300) feed.removeChild(feed.firstChild);
   if (near) feed.scrollTop = feed.scrollHeight;
 }
@@ -236,7 +295,16 @@ function render(d) {
   const n = nm(d);
   switch (d.type) {
     case 'chat': add(d, 'chat', badgesHtml(d) + nm(d, 1) + '<span class="txt">' + (d.source === 'kick' ? fmtKick(d.text) : linkify(d.text)) + '</span>'); break;
-    case 'gift': add(d, 'gift', `${n}<span class="big">أرسل ${esc(d.gift)} ×${d.count}</span> ${d.icon ? `<img class="gi" src="${esc(d.icon)}" alt="">` : ''}<span class="ev">(${d.diamonds} 💎)</span>`); break;
+    case 'gift': {
+      const g = giftInfo(d.gift), t = tier(d.diamonds || 0), fire = t === 't4' ? '🔥🔥 ' : t === 't3' ? '🔥 ' : '';
+      const pic = d.icon ? `<img class="gi" src="${esc(d.icon)}" alt="" onerror="this.outerHTML='<span class=&quot;ge&quot;>${g.emoji}</span>'">` : `<span class="ge">${g.emoji}</span>`;
+      add(d, 'gift ' + t, `${fire}${n}<span class="big" title="${esc(d.gift)}">أرسل ${esc(g.ar)}</span> ${pic}<span class="cnt">×${d.count}</span> <span class="ev">(${num(d.diamonds)} 💎)</span>`);
+      break; }
+    case 'join': {
+      const k = d.id || d.name, now = Date.now();
+      if (joined.get(k) > now - 600000) break;
+      joined.set(k, now); if (joined.size > 2000) joined.clear();
+      add(d, 'join', `${n}<span class="ev">دخل البث 👋</span>`); break; }
     case 'follow': add(d, 'follow', `${n}<span class="ev">تابع الحساب</span>`); break;
     case 'share': add(d, 'share', `${n}<span class="ev">شارك البث</span>`); break;
     case 'sub': add(d, 'sub', `${n}<span class="ev">اشترك ⭐</span>`); break;
