@@ -72,6 +72,11 @@
   .name { margin-inline-end:0; }
   .colon { margin-inline-end:6px; }
   .txt { unicode-bidi:plaintext; }
+  .tag { font-size:11px; font-weight:700; padding:1px 7px; border-radius:6px; margin-inline-end:5px; vertical-align:1px; background:#3a3454; }
+  .tag.mod { background:#0a4d0c; color:#6dff70; }
+  .tag.vip { background:#5a0a4d; color:#ff6be6; }
+  .tag.sub { color:var(--gift); }
+  .tag.owner { background:#5a1420; color:#ff8a98; }
 </style>
 </head>
 <body>
@@ -158,7 +163,6 @@ const PLAT = {
   twitch: '<svg viewBox="0 0 24 24"><path d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/></svg>',
   kick: '<svg viewBox="0 0 24 24"><path d="M1.333 0h8v5.333H12V2.667h2.667V0h8v8H20v2.667h-2.667v2.666H20V16h2.667v8h-8v-2.667H12v-2.666H9.333V24h-8Z"/></svg>',
 };
-const IMG_BADGE = { moderator: 'data:image/png;base64,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', vip: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAAEI0lEQVR42s2YTWgcZRjHf887u7O7SZpstmlVKKj0y4qCtEjxoBdBD9KLYtpCtVovInpU6UnFg3oQLHjw5MmTCKJga/FiRUEFTeLamh4URavtziabbHaz2Z2Z9/EwsyFNk/2YxOB72GUHdt7f+38+30dUVWkvBYStXyv2Ta1+2Jqo0jhfRmshmPj5Zi8BLMiAQ+7hMdxDw8v7i6pq+8fCe39SefkyYbWJ/ickq7kEZ8Bl5JU9jLx0OyiIhlYxgj9d5+p93xLO+ciAg+gWWEpAGxZxDTdfuJfM4TwptSAGGuc8grkmJpcGfyv0iVXKGexii8bZMpnDeUx7ZzsfgOiW+7Ro9GGrwSqnlh4c2GwA12rnKDOro6yHyNBmmDDsBHFN579qP0AC+Er6wBDO9jQa9pqwFHEEOxfgX6pBSrqepzuQEbQZkjk4ws7PD+HscPu3VjWgdORHlr6aQbIpCNenMl2VCRWzLcXoO/sjmLBPk4WKGU5ROHMHZiwDvu24axcgQYOQ/Gt7yN5fiGCcPh3bEQgV955hCm/ti51bEgA5gjYDBh+9hW0v3BrBJI0yI2CVoVO7GDy5C2366x7MdPKb9O5BRt/ej6QERJIXXonURmH0zb24d4+gS+GaBzTr+Y2khcKZA6Ruy0Uym00oqKo4N2UovHsnZtCBwN5wSLOm34SWkdO7yT2yIzKVbFL+NpE/ZR8YJf/6XlTb75ZOJovKh7Pdvf50m7xMwUWMYWU7tjaQAo5h9sVpau9fWY6STVlxlNY/usbs8xejdmNlml4XyIAGysxzF6l/8PfmQMUwi5+UmDlVxNZtlJa1lyhTkJSJoJ69yOKHVzcGFcM0zpUpP1XE1oKottl+8pDVCKphKT9TZPHja8mg2jBfzOCdmMLO+4jrrFv9TdeWIW2wi5by00Uan3n9QcUwSxcqlE9MYSudYboDtZVyDbYa4j35E0vnZ3qDasN8U8E7PklYaiGZzjC9AcUvF9dgKz7eiSmWvpztDBXDNL+fp3xsivCfJpJ1elK29/xrFXEdwnIL7/gUza8ra0PFMK2JKt7RSYK/Gj3D9AfUhso6hFeblI5N0fxu/nqoNkyxRunxSYLfG137n40Btc2XdQivLOEdnaT1QzXqDFoWHMH/pY43PkHwa70vZZIDrYAK/mjgjU/SmqgirsGfrlMan8CfrvWtzMaAVkD5v9UpP1Fk8dMS5ZNF/J8XEsPceA1KAuWmaF2q4T02iYaR4yeCkdUK2YRQGvVOCNF3slvSchkxy2TDKVBJdoXWHi+a613HVDD5yFgpiTXKPTSGM5KJas0WDxtM1mXgyM7Yh0wkc/quIUbf2Efl9GXC+a0bx5hcmvyre3APDsfjmHbLFreTreICjbMeupBgYCX92UpyDtkHC2QO51cNrP5HI71/ARGp/jHkHC+nAAAAAElFTkSuQmCC' };
 const EMOJI_BADGE = { broadcaster: '📺', moderator: '🛡️', vip: '💎', subscriber: '⭐' };
 const ICON = {
   ban: '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9A7.9 7.9 0 014 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1A7.9 7.9 0 0120 12c0 4.42-3.58 8-8 8z"/></svg>',
@@ -184,21 +188,17 @@ async function loadBadges() {
     if (/^\d+$/.test(id)) addSets((await (await fetch(`https://badges.twitch.tv/v1/badges/channels/${id}/display`)).json()).badge_sets);
   } catch {}
 }
+const TAGS = {
+  broadcaster: ['صاحب البث', 'owner'], moderator: ['مود', 'mod'], lead_moderator: ['مود', 'mod'],
+  vip: ['VIP', 'vip'], subscriber: ['مشترك', 'sub'], founder: ['مشترك', 'sub'],
+};
 function badgesHtml(d) {
-  const out = [];
+  const seen = new Set(), out = [];
   for (const b of d.badges || []) {
-    let [set, ver] = String(b).split('/');
-    if (set === 'founder') set = 'subscriber';
-    if (set === 'subscriber') { out.push('<span class="sub-tag">مشترك</span>'); continue; }
-    if (set === 'lead_moderator') {
-      const url = d.source === 'twitch' && BADGES['lead_moderator/1'];
-      out.push(`<img class="bdg" src="${url ? esc(url) : IMG_BADGE.moderator}" alt="lead_moderator" title="lead moderator">`); continue;
-    }
-    if (IMG_BADGE[set]) { out.push(`<img class="bdg" src="${IMG_BADGE[set]}" alt="${set}" title="${set}">`); continue; }
-    if (set === 'broadcaster') {
-      const url = d.source === 'twitch' && (BADGES['broadcaster/1'] || BADGES['broadcaster/0']);
-      out.push(url ? `<img class="bdg" src="${esc(url)}" alt="broadcaster">` : '<span class="bdg-e" title="broadcaster">📺</span>');
-    }
+    const t = TAGS[String(b).split('/')[0]];
+    if (!t || seen.has(t[0])) continue;
+    seen.add(t[0]);
+    out.push(`<span class="tag ${t[1]}">${t[0]}</span>`);
   }
   return out.join('');
 }
@@ -404,7 +404,6 @@ async function setupBar() {
 (async function init() {
   cfg = await fetch('/config').then(r => r.json()).catch(() => ({ twitch: 'libashayer' }));
   readAuthHash();
-  await loadBadges();
   startServerFeed();
   startTwitchChat();
   pollTwitchStats(); setInterval(pollTwitchStats, 30000);
