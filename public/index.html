@@ -262,16 +262,29 @@ function renderPins() {
   box.hidden = !PINS.length;
   store.set('pins', JSON.stringify(PINS));
 }
-function pinMsg(el) {
+async function pinMsg(el) {
   const c = el.cloneNode(true);
   c.querySelectorAll('.acts').forEach(x => x.remove());
-  const html = c.innerHTML, i = PINS.findIndex(p => p.html === html);
+  const html = c.innerHTML, mid = el.dataset.src === 'twitch' ? (el.dataset.mid || '') : '';
+  const i = PINS.findIndex(p => p.html === html);
   if (i >= 0) PINS.splice(i, 1);
-  PINS.unshift({ html });
+  PINS.unshift({ html, mid });
   if (PINS.length > 3) PINS.length = 3;
-  renderPins(); toast('تم تثبيت الرسالة 📌');
+  renderPins();
+  if (!mid) { toast('تم تثبيت الرسالة 📌'); return; }
+  // رسالة تويتش: نثبتها بعد في شات تويتش نفسه (تثبيت تويتش الرسمي، رسالة وحدة بس في نفس الوقت)
+  if (!tw.userId) { toast('تثبّتت عندك بس. اربط حساب تويتش (الزر تحت) عشان تتثبت في تويتش نفسه'); return; }
+  try { await helix('PUT', `chat/pins?${q()}&message_id=${encodeURIComponent(mid)}`); toast('تم التثبيت في تويتش 📌'); }
+  catch (err) { toast('تثبيت تويتش: ' + err.message); }
 }
-$('#pins').onclick = e => { const b = e.target.closest('.unpin'); if (b) { PINS.splice(+b.dataset.i, 1); renderPins(); } };
+$('#pins').onclick = async e => {
+  const b = e.target.closest('.unpin'); if (!b) return;
+  const p = PINS.splice(+b.dataset.i, 1)[0];
+  renderPins();
+  if (p && p.mid && tw.userId) {
+    try { await helix('DELETE', `chat/pins?${q()}&message_id=${encodeURIComponent(p.mid)}`); toast('انشال التثبيت من تويتش'); } catch {}
+  }
+};
 renderPins();
 
 // صور الحسابات (تيك توك تجي من السيرفر، تويتش وكيك نجيبها من السيرفر)
