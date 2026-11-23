@@ -35,6 +35,21 @@ let tt = null;
 let ttTimer = null;
 let giftMap = {};
 
+// طباعة آمنة (بيانات تيك توك فيها أرقام BigInt تكسر JSON.stringify العادي)
+const bigRep = (k, v) => (typeof v === 'bigint' ? v.toString() : v);
+const clone = o => { try { return JSON.parse(JSON.stringify(o, bigRep)); } catch { return String(o); } };
+
+// آخر عينات من بيانات تيك توك الخام، تنعرض في /debug عشان نتأكد من الحقول
+const dbgBuf = { chat: [], gift: [], member: [], roomUser: [], room: [], giftList: [] };
+const dbgAt = {};
+function dbgPush(kind, raw, parsed) {
+  const a = dbgBuf[kind], now = Date.now();
+  if (a.length >= 3 && now - (dbgAt[kind] || 0) < 5000) return;
+  dbgAt[kind] = now;
+  a.push({ at: new Date().toISOString(), parsed, raw: clone(raw) });
+  if (a.length > 3) a.shift();
+}
+
 // يجمع كل الروابط داخل أي كائن، ويفضّل صيغ الصور اللي المتصفح يعرضها (يتجنب heic)
 function urlsIn(o, out = [], depth = 0) {
   if (!o || depth > 5) return out;
@@ -46,6 +61,13 @@ function urlsIn(o, out = [], depth = 0) {
 function bestImg(o) {
   const u = urlsIn(o);
   return u.find(x => /\.(jpe?g|png|webp)/i.test(x) && !/heic/i.test(x)) || u.find(x => !/heic/i.test(x)) || u[0] || '';
+}
+// يدور على رقم باسم من الأسماء المعطاة داخل أي كائن (يتحمل اختلاف شكل البيانات)
+function findNum(o, keys, depth = 0) {
+  if (!o || typeof o !== 'object' || depth > 4) return undefined;
+  for (const k of keys) { const v = o[k]; if (typeof v === 'number' || typeof v === 'bigint') return Number(v); }
+  for (const v of Object.values(o)) { const r = findNum(v, keys, depth + 1); if (r !== undefined) return r; }
+  return undefined;
 }
 const tu = d => {
   const u = d.user || d;
@@ -59,17 +81,18 @@ const tu = d => {
 // عدد المشاهدين والمتابعين
 function applyRoom(ri) {
   if (!ri) return;
-  const v = ri.user_count ?? ri.userCount ?? ri.stats?.user_count ?? ri.stats?.userCount;
-  const f = ri.owner?.follow_info?.follower_count ?? ri.owner?.followInfo?.followerCount;
+  dbgPush('room', ri, null);
+  const v = findNum(ri, ['user_count', 'userCount', 'viewerCount', 'viewer_count']);
+  const f = findNum(ri.owner || ri, ['follower_count', 'followerCount']);
   const patch = {};
-  if (v != null) patch.viewers = v;
-  if (f != null) patch.followers = f;
+  if (v !== undefined) patch.viewers = v;
+  if (f !== undefined) patch.followers = f;
   if (Object.keys(patch).length) stat('tiktok', { ...patch, live: true });
 }
 setInterval(async () => {
   if (!tt || !stats.tiktok.live || !tt.fetchRoomInfo) return;
   try { applyRoom(await tt.fetchRoomInfo()); } catch {}
-}, 30000);
+}, 20000);
 
 // قائمة الهدايا (اسم + صورة + سعر) نستخدمها لو الهدية جت بدون اسم
 async function loadGifts() {
@@ -78,6 +101,7 @@ async function loadGifts() {
     const r = await tt.fetchAvailableGifts();
     const arr = Array.isArray(r) ? r : (r?.gifts || r?.data?.gifts || []);
     for (const x of arr) giftMap[String(x.id)] = { name: x.name, diamonds: x.diamond_count ?? x.diamondCount, icon: bestImg(x.image || x.icon) };
+    dbgPush('giftList', arr.slice(0, 2), { count: arr.length });
     console.log('tiktok gifts loaded:', Object.keys(giftMap).length);
   } catch (e) { console.log('tiktok gifts list:', e.message || e); }
 }
@@ -92,34 +116,35 @@ function ttConnect() {
   tt = new TikTokLiveConnection(CFG.tiktok, CFG.tiktokSignKey ? { signApiKey: CFG.tiktokSignKey } : {});
   const ev = (name, fallback) => (WebcastEvent && WebcastEvent[name]) || fallback;
 
-  let dbg = 0, gdbg = 0, rdbg = 0;
   tt.on(ev('CHAT', 'chat'), d => {
-    if (dbg < 2) { dbg++; try { console.log('tiktok chat raw:', JSON.stringify(d).slice(0, 900)); } catch {} }
     const text = d.comment || d.content || d.msg || d.text || d.message?.content || '';
-    emit({ ...tu(d), type: 'chat', text });
+    const u = tu(d);
+    dbgPush('chat', d, { ...u, text });
+    emit({ ...u, type: 'chat', text });
   });
   tt.on(ev('GIFT', 'gift'), d => {
-    if (gdbg < 3) { gdbg++; try { console.log('tiktok gift raw:', JSON.stringify(d).slice(0, 1200)); } catch {} }
     const g = d.giftDetails || d.gift || {};
     const id = String(d.giftId ?? g.id ?? g.giftId ?? '');
     const m = giftMap[id] || {};
     const name = g.giftName || g.name || d.giftName || m.name ||
       String(d.describe || g.describe || '').replace(/^.*?\b(sent|sends)\s+/i, '').replace(/\s*x\d+\s*$/i, '').trim();
     const type = g.giftType ?? g.type ?? d.giftType;
-    if (type === 1 && !d.repeatEnd) return;
     const n = d.repeatCount || d.comboCount || 1;
     const unit = g.diamondCount ?? g.diamond_count ?? d.diamondCount ?? m.diamonds ?? 0;
     const icon = bestImg(g.giftImage || g.image || g.icon) || m.icon || d.giftPictureUrl || '';
-    emit({ ...tu(d), type: 'gift', gift: name, giftId: id, count: n, diamonds: unit * n, icon });
+    const u = tu(d);
+    dbgPush('gift', d, { ...u, name, id, type, repeatEnd: d.repeatEnd, n, unit, icon });
+    if (type === 1 && !d.repeatEnd) return;
+    emit({ ...u, type: 'gift', gift: name, giftId: id, count: n, diamonds: unit * n, icon });
   });
   tt.on(ev('FOLLOW', 'follow'), d => emit({ ...tu(d), type: 'follow' }));
   tt.on(ev('SHARE', 'share'), d => emit({ ...tu(d), type: 'share' }));
   tt.on(ev('SUBSCRIBE', 'subscribe'), d => emit({ ...tu(d), type: 'sub' }));
-  tt.on(ev('MEMBER', 'member'), d => emit({ ...tu(d), type: 'join' }));
+  tt.on(ev('MEMBER', 'member'), d => { const u = tu(d); dbgPush('member', d, u); emit({ ...u, type: 'join' }); });
   tt.on(ev('ROOM_USER', 'roomUser'), d => {
-    if (rdbg < 2) { rdbg++; try { console.log('tiktok roomUser raw:', JSON.stringify(d).slice(0, 400)); } catch {} }
-    const v = d.viewerCount ?? d.viewer_count ?? d.userCount ?? d.total;
-    stat('tiktok', v != null ? { viewers: v, live: true } : { live: true });
+    const v = findNum(d, ['viewerCount', 'viewer_count', 'userCount', 'user_count', 'total']);
+    dbgPush('roomUser', d, { viewers: v });
+    stat('tiktok', v !== undefined ? { viewers: v, live: true } : { live: true });
   });
   tt.on(ev('STREAM_END', 'streamEnd'), () => stat('tiktok', { status: 'انتهى البث', live: false }));
   tt.on((ControlEvent && ControlEvent.DISCONNECTED) || 'disconnected', () => {
@@ -243,6 +268,9 @@ function getAvatar(src, name) {
   return avCache.get(key);
 }
 
+// صور تيك توك: نسمح بس بنطاقات تيك توك (حماية من استغلال السيرفر)
+const IMG_OK = /(^|\.)(tiktokcdn\.com|tiktokcdn-us\.com|ibyteimg\.com|byteimg\.com|ibytedtos\.com|tiktokv\.com|tiktokv\.us|muscdn\.com)$/i;
+
 // ---------------- HTTP ----------------
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -260,6 +288,22 @@ http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' });
       res.end(JSON.stringify({ url: u }));
     });
+  }
+  if (url.pathname === '/debug') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    return res.end(JSON.stringify({ tiktokStats: stats.tiktok, giftListSize: Object.keys(giftMap).length, samples: dbgBuf }, bigRep, 1));
+  }
+  if (url.pathname === '/img') {
+    let u; try { u = new URL(url.searchParams.get('u') || ''); } catch { res.writeHead(400); return res.end(); }
+    if (u.protocol !== 'https:' || !IMG_OK.test(u.hostname)) { res.writeHead(403); return res.end(); }
+    return fetch(u, { redirect: 'manual', headers: { 'user-agent': 'Mozilla/5.0', referer: 'https://www.tiktok.com/' } }).then(async r => {
+      const ct = r.headers.get('content-type') || '';
+      if (!r.ok || !ct.startsWith('image/')) { res.writeHead(502); return res.end(); }
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length > 2000000) { res.writeHead(413); return res.end(); }
+      res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'public, max-age=86400' });
+      res.end(buf);
+    }).catch(() => { res.writeHead(502); res.end(); });
   }
   if (url.pathname === '/config') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
