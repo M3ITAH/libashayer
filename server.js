@@ -2,7 +2,6 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const WebSocket = require('ws');
 const { TikTokLiveConnection, WebcastEvent, ControlEvent } = require('tiktok-live-connector');
 
@@ -291,107 +290,6 @@ function getAvatar(src, name) {
   return avCache.get(key);
 }
 
-// ---------------- مودريشن تيك توك (كتم / حظر) عن طريق EulerStream ----------------
-// يحتاج متغيرات: EULER_API_KEY و EULER_CLIENT_ID و EULER_CLIENT_SECRET
-// الحساب (صاحب القناة أو مشرف) يربط نفسه بمسح QR، والتوكن يتخزن في متصفحه هو، مو في السيرفر.
-const EULER = { key: process.env.EULER_API_KEY || '', cid: process.env.EULER_CLIENT_ID || '', secret: process.env.EULER_CLIENT_SECRET || '' };
-const ttModOn = () => !!(EULER.key && EULER.cid && EULER.secret);
-const baseUrl = req => (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `https://${req.headers.host}`).replace(/\/$/, '');
-const ttStates = new Map();
-const modHits = [];
-const modLimited = () => {
-  const now = Date.now();
-  while (modHits.length && now - modHits[0] > 60000) modHits.shift();
-  if (modHits.length >= 30) return true;
-  modHits.push(now); return false;
-};
-const readJson = req => new Promise(resolve => {
-  let b = '';
-  req.on('data', c => { b += c; if (b.length > 10000) req.destroy(); });
-  req.on('end', () => { try { resolve(JSON.parse(b || '{}')); } catch { resolve({}); } });
-  req.on('error', () => resolve({}));
-});
-const sendJson = (res, code, o) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); };
-const escHtml = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-async function eulerToken(body) {
-  const r = await fetch('https://tiktok.eulerstream.com/tiktok/oauth/token', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, client_id: EULER.cid, client_secret: EULER.secret }),
-    signal: AbortSignal.timeout(15000),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (j.code !== 200 || !j.data) throw new Error(j.error?.error_description || j.message || ('HTTP ' + r.status));
-  const d = j.data, now = Date.now();
-  return { access: d.access_token, refresh: d.refresh_token, exp: now + (d.expires_in || 3600) * 1000, rexp: now + (d.refresh_expires_in || 2592000) * 1000, scopes: d.scopes || [] };
-}
-function ttLogin(req, res) {
-  if (!ttModOn()) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('مودريشن تيك توك غير مفعّل: ينقص EULER_API_KEY / EULER_CLIENT_ID / EULER_CLIENT_SECRET في إعدادات السيرفر'); }
-  const state = crypto.randomBytes(16).toString('hex');
-  ttStates.set(state, Date.now() + 600000);
-  for (const [k, v] of ttStates) if (v < Date.now()) ttStates.delete(k);
-  const u = new URL('https://www.eulerstream.com/tiktok/oauth/authorize');
-  u.searchParams.set('client_id', EULER.cid);
-  u.searchParams.set('redirect_uri', baseUrl(req) + '/tt/callback');
-  u.searchParams.set('response_type', 'code');
-  u.searchParams.set('scope', 'webcast:mute webcast:ban');
-  u.searchParams.set('state', state);
-  res.writeHead(302, { Location: u.toString(), 'Cache-Control': 'no-store' }); res.end();
-}
-async function ttCallback(req, res, url) {
-  const page = (title, body, script = '') => {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تيك توك</title><body style="font-family:sans-serif;background:#14121f;color:#fff;text-align:center;padding:40px"><h2>${title}</h2><p>${body}</p>${script}`);
-  };
-  try {
-    const state = url.searchParams.get('state') || '', code = url.searchParams.get('code') || '';
-    if (url.searchParams.get('error')) return page('ما تم الربط ❌', escHtml(url.searchParams.get('error_description') || url.searchParams.get('error')));
-    if (!ttStates.has(state) || ttStates.get(state) < Date.now()) return page('انتهت صلاحية العملية ❌', 'سكّر النافذة وجرب الربط من جديد.');
-    ttStates.delete(state);
-    const tokens = await eulerToken({ grant_type: 'authorization_code', code, redirect_uri: baseUrl(req) + '/tt/callback' });
-    const json = JSON.stringify(tokens).replace(/</g, '\\u003c');
-    page('تم ربط حساب تيك توك ✅', 'تقدر تقفل هذي النافذة.',
-      `<script>try{window.opener&&window.opener.postMessage({type:'tt-auth',tokens:${json}},location.origin)}catch(e){}setTimeout(function(){window.close()},1200)</script>`);
-  } catch (e) { page('فشل الربط ❌', escHtml(e.message || e)); }
-}
-async function ttRefresh(req, res) {
-  if (!ttModOn()) return sendJson(res, 503, { error: 'مودريشن تيك توك غير مفعّل في السيرفر' });
-  try {
-    const b = await readJson(req);
-    if (!b.refresh_token) return sendJson(res, 400, { error: 'ما في refresh_token' });
-    sendJson(res, 200, { tokens: await eulerToken({ grant_type: 'refresh_token', refresh_token: String(b.refresh_token) }) });
-  } catch (e) { sendJson(res, 401, { error: 'فشل تجديد الربط: ' + (e.message || e) }); }
-}
-async function ttMod(req, res) {
-  if (!ttModOn()) return sendJson(res, 503, { error: 'مودريشن تيك توك غير مفعّل في السيرفر' });
-  const token = String(req.headers['x-oauth-token'] || '');
-  if (!token) return sendJson(res, 401, { error: 'اربط حساب تيك توك أول' });
-  if (modLimited()) return sendJson(res, 429, { error: 'طلبات كثيرة، انتظر شوي' });
-  const b = await readJson(req);
-  const action = String(b.action || ''), userId = String(b.userId || '');
-  if (!['mute', 'unmute', 'ban', 'unban'].includes(action)) return sendJson(res, 400, { error: 'أمر غير معروف' });
-  if (!/^\d{1,25}$/.test(userId)) return sendJson(res, 400, { error: 'رقم المستخدم غير صحيح (ما وصل من تيك توك)' });
-  if (!ttRoomId) return sendJson(res, 409, { error: 'السيرفر ما عرف رقم غرفة اللايف. تأكد إن البث شغال وإن الشات متصل' });
-  const base = `https://api.eulerstream.com/webcast/rooms/${encodeURIComponent(ttRoomId)}/moderation`;
-  const dur = [-1, 5, 30, 60, 300].includes(+b.duration) ? +b.duration : 300;
-  let method = 'PUT', u;
-  if (action === 'mute') u = `${base}/mutes?user_id=${userId}&duration=${dur}`;
-  if (action === 'unmute') { method = 'DELETE'; u = `${base}/mutes?user_id=${userId}`; }
-  if (action === 'ban') u = `${base}/bans?tiktok_user_id=${userId}`;
-  if (action === 'unban') { method = 'DELETE'; u = `${base}/bans?tiktok_user_id=${userId}`; }
-  try {
-    const r = await fetch(u, { method, headers: { 'x-api-key': EULER.key, 'x-oauth-token': token }, signal: AbortSignal.timeout(15000) });
-    const j = await r.json().catch(() => ({}));
-    const failed = !r.ok || (j.code && j.code !== 200);
-    if (failed) {
-      console.log('tiktok mod:', action, r.status, JSON.stringify(j).slice(0, 300));
-      const status = r.status === 401 || r.status === 403 ? 401 : (r.ok ? 502 : r.status);
-      return sendJson(res, status, { error: (j.message || 'رفض تيك توك/Euler الطلب') + ` (${r.status})` });
-    }
-    sendJson(res, 200, { ok: true });
-  } catch (e) { sendJson(res, 502, { error: 'تعذر الاتصال بـ Euler: ' + (e.message || e) }); }
-}
-
 // صور تيك توك: نسمح بس بنطاقات تيك توك (حماية من استغلال السيرفر)
 const IMG_OK = /(^|\.)(tiktokcdn\.com|tiktokcdn-us\.com|ibyteimg\.com|byteimg\.com|ibytedtos\.com|tiktokv\.com|tiktokv\.us|muscdn\.com)$/i;
 
@@ -415,7 +313,7 @@ http.createServer((req, res) => {
   }
   if (url.pathname === '/debug') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify({ ttRoomId, ttModEnabled: ttModOn(), tiktokStats: stats.tiktok, followersFetch: ttFollowDbg, giftListSize: Object.keys(giftMap).length, samples: dbgBuf }, bigRep, 1));
+    return res.end(JSON.stringify({ ttRoomId, tiktokStats: stats.tiktok, followersFetch: ttFollowDbg, giftListSize: Object.keys(giftMap).length, samples: dbgBuf }, bigRep, 1));
   }
   if (url.pathname === '/img') {
     let u; try { u = new URL(url.searchParams.get('u') || ''); } catch { res.writeHead(400); return res.end(); }
@@ -429,13 +327,9 @@ http.createServer((req, res) => {
       res.end(buf);
     }).catch(() => { res.writeHead(502); res.end(); });
   }
-  if (url.pathname === '/tt/login') return ttLogin(req, res);
-  if (url.pathname === '/tt/callback') return ttCallback(req, res, url);
-  if (url.pathname === '/tt/refresh' && req.method === 'POST') return ttRefresh(req, res);
-  if (url.pathname === '/tt/mod' && req.method === 'POST') return ttMod(req, res);
   if (url.pathname === '/config') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ tiktok: CFG.tiktok, twitch: CFG.twitch, kick: CFG.kick, twitchClientId: CFG.twitchClientId, ttMod: ttModOn() }));
+    return res.end(JSON.stringify({ tiktok: CFG.tiktok, twitch: CFG.twitch, kick: CFG.kick, twitchClientId: CFG.twitchClientId }));
   }
   fs.readFile(path.join(__dirname, 'public', 'index.html'), (err, buf) => {
     if (err) { res.writeHead(500); return res.end('error'); }
