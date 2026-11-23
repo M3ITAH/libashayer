@@ -121,6 +121,7 @@
     <button data-pos="full" aria-pressed="false">كامل</button>
     <button id="hist" aria-pressed="true" title="عرض آخر رسائل الشات حتى لو البث أوفلاين">السجل</button>
     <button id="joins" aria-pressed="true" title="إظهار/إخفاء من يدخل بث تيك توك">الدخول</button>
+    <button id="ttlink" aria-pressed="false" title="ربط حساب تيك توك (صاحب القناة أو مشرف) عشان تكتم وتحظر">ربط تيك توك</button>
   </div>
 </nav>
 <div id="pins" hidden></div>
@@ -379,8 +380,10 @@ function add(d, cls, html, extra = {}, style = '') {
   const mod = extra.uid ? `
       <button data-act="ban" title="حظر">${ICON.ban}</button><button data-act="to" title="تايم أوت 10 دقايق">${ICON.clock}</button>
       <button data-act="del" title="حذف الرسالة">${ICON.trash}</button><button data-act="so" title="شوت أوت">${ICON.mega}</button>` : '';
+  const ttm = extra.tuid ? `
+      <button data-act="ttmute" title="كتم 5 دقايق (تيك توك)">${ICON.clock}</button><button data-act="ttban" title="حظر من لايف تيك توك">${ICON.ban}</button>` : '';
   const pin = cls === 'chat' ? `<button data-act="pin" title="تثبيت في أعلى الشات">${ICON.pin}</button>` : '';
-  const acts = (mod || pin) ? `<span class="acts">${pin}${mod}</span>` : '';
+  const acts = (mod || pin || ttm) ? `<span class="acts">${pin}${mod}${ttm}</span>` : '';
   el.innerHTML = `${acts}<span class="plat" style="color:var(--${d.source})" title="${NAMES[d.source]}">${PLAT[d.source]}</span>${avatarHtml(d, extra)}${html}`;
   feed.appendChild(el);
   const im = el.querySelector('img.av[data-n]');
@@ -393,7 +396,7 @@ const nm = (d, colon) => `<span class="name"${d.color ? ` style="color:${esc(d.c
 function render(d) {
   const n = nm(d);
   switch (d.type) {
-    case 'chat': add(d, 'chat', badgesHtml(d) + nm(d, 1) + '<span class="txt">' + (d.source === 'kick' ? fmtKick(d.text) : linkify(d.text)) + '</span>'); break;
+    case 'chat': add(d, 'chat', badgesHtml(d) + nm(d, 1) + '<span class="txt">' + (d.source === 'kick' ? fmtKick(d.text) : linkify(d.text)) + '</span>', d.source === 'tiktok' && /^\d+$/.test(d.uid || '') ? { tuid: d.uid, tname: d.name } : {}); break;
     case 'gift': {
       const g = giftInfo(d.gift, d.giftId), cnt = d.count || 1;
       const coins = d.diamonds || g.coins * cnt;
@@ -524,6 +527,42 @@ async function doAction(act, el) {
   if (act === 'so') { await helix('POST', `chat/shoutouts?from_broadcaster_id=${tw.chanId}&to_broadcaster_id=${uid}&moderator_id=${tw.userId}`); toast(`شوت أوت لـ ${name}`); }
 }
 
+// ===== مودريشن تيك توك (كتم / حظر) =====
+const ttLoad = () => { try { return JSON.parse(store.get('tt_auth') || 'null'); } catch { return null; } };
+function ttSave(t) { if (t) store.set('tt_auth', JSON.stringify(t)); else store.del('tt_auth'); ttBtn(); }
+function ttBtn() { const b = $('#ttlink'), on = !!ttLoad(); b.textContent = on ? 'تيك توك: مربوط ✅' : 'ربط تيك توك'; b.setAttribute('aria-pressed', on); }
+$('#ttlink').onclick = () => {
+  if (ttLoad()) { if (confirm('فك ربط حساب تيك توك من هذا المتصفح؟')) ttSave(null); return; }
+  if (!cfg.ttMod) { toast('مودريشن تيك توك غير مفعّل في السيرفر (ينقص إعدادات Euler)'); return; }
+  window.open('/tt/login', 'ttlogin', 'width=520,height=760');
+};
+window.addEventListener('message', e => {
+  if (e.origin !== location.origin || !e.data || e.data.type !== 'tt-auth' || !e.data.tokens) return;
+  ttSave(e.data.tokens); toast('تم ربط حساب تيك توك ✅');
+});
+async function ttToken() {
+  let t = ttLoad();
+  if (!t) throw new Error('اربط حساب تيك توك أول (زر "ربط تيك توك" فوق)');
+  if (Date.now() > t.exp - 300000) {
+    if (Date.now() > t.rexp) { ttSave(null); throw new Error('انتهى الربط، اربط حساب تيك توك من جديد'); }
+    const r = await fetch('/tt/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: t.refresh }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.tokens) { ttSave(null); throw new Error(j.error || 'فشل تجديد الربط، اربط تيك توك من جديد'); }
+    t = j.tokens; ttSave(t);
+  }
+  return t.access;
+}
+async function ttModAct(act, el) {
+  const uid = el.dataset.tuid, name = el.dataset.tname || '';
+  if (act === 'ttban' && !confirm(`حظر ${name} من لايف تيك توك؟`)) return;
+  const token = await ttToken();
+  const r = await fetch('/tt/mod', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-oauth-token': token },
+    body: JSON.stringify({ action: act === 'ttban' ? 'ban' : 'mute', userId: uid, duration: 300 }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { if (r.status === 401) ttSave(null); throw new Error(j.error || 'خطأ ' + r.status); }
+  toast(act === 'ttban' ? `تم حظر ${name} من تيك توك` : `تم كتم ${name} 5 دقايق في تيك توك`);
+}
+
 async function submit(text) {
   text = text.trim(); if (!text) return;
   if (!text.startsWith('/')) { await helix('POST', 'chat/messages', { broadcaster_id: tw.chanId, sender_id: tw.userId, message: text }); return; }
@@ -549,6 +588,7 @@ feed.addEventListener('click', async e => {
   const b = e.target.closest('button[data-act]');
   if (!b) { if (!e.target.closest('a') && msg.classList.contains('chat')) msg.classList.toggle('open'); return; }
   if (b.dataset.act === 'pin') { pinMsg(msg); return; }
+  if (b.dataset.act === 'ttmute' || b.dataset.act === 'ttban') { try { await ttModAct(b.dataset.act, msg); } catch (err) { toast(err.message); } return; }
   if (!tw.userId) { toast('اربط حساب تويتش أول (الزر اللي تحت)'); return; }
   try { await doAction(b.dataset.act, msg); } catch (err) { toast(err.message); }
 });
@@ -573,6 +613,7 @@ async function setupBar() {
 
 (async function init() {
   cfg = await fetch('/config').then(r => r.json()).catch(() => ({ twitch: 'libashayer' }));
+  ttBtn();
   readAuthHash();
   startServerFeed();
   startTwitchChat();
