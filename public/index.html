@@ -83,19 +83,19 @@
   /* ===== دخول البث ===== */
   .msg.join { opacity:.8; }
   #feed.nojoin .msg.join { display:none; }
-  /* ===== الهدايا حسب القيمة (t0 أصغر شي ... t4 أكبر شي) ===== */
-  .msg.gift { padding:5px 8px; }
-  .gift .cnt { color:var(--gift); font-weight:700; margin-inline-end:4px; }
+  /* ===== الهدايا: اللون حسب نوع الهدية (--ga)، والحجم حسب القيمة (t0 أصغر ... t4 أكبر) ===== */
+  .av.ph { display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#fff; background:#4b4568; }
+  .msg.gift { position:relative; isolation:isolate; padding:5px 8px; margin:2px 0; background:transparent; border-inline-start:4px solid var(--ga,#ffb020); }
+  .msg.gift::before { content:''; position:absolute; inset:0; background:var(--ga,#ffb020); opacity:.16; border-radius:6px; z-index:-1; pointer-events:none; }
+  .msg.gift .big, .msg.gift .cnt { color:var(--ga,#ffb020); font-weight:700; }
+  .gift .cnt { margin-inline-end:4px; }
   .gift .gi { width:30px; height:30px; vertical-align:middle; margin-inline-end:4px; }
   .gift .ge { font-size:20px; vertical-align:middle; margin-inline-end:4px; }
-  .msg.gift.t1 { background:linear-gradient(90deg,rgba(255,176,32,.30),transparent 80%); }
-  .msg.gift.t2 { background:linear-gradient(90deg,rgba(255,140,40,.42),transparent 85%); border-inline-start:4px solid #ff8c28; font-size:18px; }
-  .msg.gift.t2 .gi { width:38px; height:38px; }
-  .msg.gift.t3 { background:linear-gradient(90deg,rgba(255,79,163,.45),rgba(255,176,32,.22) 60%,transparent); border-inline-start:5px solid #ff4fa3; font-size:20px; padding:8px 10px; margin:4px 0; }
-  .msg.gift.t3 .gi { width:48px; height:48px; }
-  .msg.gift.t4 { background:linear-gradient(90deg,rgba(255,50,120,.6),rgba(255,176,32,.35) 60%,transparent); border-inline-start:6px solid #ff2d78; font-size:23px; padding:10px 12px; margin:6px 0; animation:gpulse 1.6s ease-in-out infinite; }
-  .msg.gift.t4 .gi { width:60px; height:60px; }
-  @keyframes gpulse { 50% { box-shadow:0 0 18px rgba(255,45,120,.65); } }
+  .msg.gift.t1::before { opacity:.24; }
+  .msg.gift.t2 { font-size:18px; } .msg.gift.t2::before { opacity:.32; } .msg.gift.t2 .gi { width:38px; height:38px; }
+  .msg.gift.t3 { font-size:20px; padding:8px 10px; margin:4px 0; border-inline-start-width:5px; } .msg.gift.t3::before { opacity:.42; } .msg.gift.t3 .gi { width:48px; height:48px; }
+  .msg.gift.t4 { font-size:23px; padding:10px 12px; margin:6px 0; border-inline-start-width:6px; animation:gpulse 1.6s ease-in-out infinite; } .msg.gift.t4::before { opacity:.52; } .msg.gift.t4 .gi { width:60px; height:60px; }
+  @keyframes gpulse { 50% { box-shadow:0 0 18px var(--ga,#ffb020); } }
   @media (prefers-reduced-motion:reduce){ .msg.gift.t4 { animation:none; } }
   /* ===== الرسائل المثبتة ===== */
   #pins { margin:0 10px 6px; display:flex; flex-direction:column; gap:4px; max-height:35%; overflow-y:auto; direction:ltr; }
@@ -295,32 +295,86 @@ function avatarUrl(src, name) {
   if (!AV.has(k)) AV.set(k, fetch(`/avatar?src=${src}&name=${encodeURIComponent(name)}`).then(r => r.json()).then(j => j.url || '').catch(() => ''));
   return AV.get(k);
 }
+const initialOf = n => (Array.from(String(n || '?').trim())[0] || '?').toUpperCase();
+// لو صورة تيك توك ما تحملت: نجربها عن طريق السيرفر، ولو فشلت نحط حرف من الاسم
+function avFail(im) {
+  if (im.dataset.u && !im.dataset.p) { im.dataset.p = '1'; im.src = '/img?u=' + encodeURIComponent(im.dataset.u); return; }
+  const sp = document.createElement('span'); sp.className = 'av ph'; sp.textContent = im.dataset.l || '?'; im.replaceWith(sp);
+}
 function avatarHtml(d, extra) {
-  if (d.source === 'tiktok') return d.avatar ? `<img class="av" src="${esc(d.avatar)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
+  if (d.source === 'tiktok') {
+    return d.avatar
+      ? `<img class="av" src="${esc(d.avatar)}" alt="" referrerpolicy="no-referrer" data-u="${esc(d.avatar)}" data-l="${esc(initialOf(d.name))}" onerror="avFail(this)">`
+      : `<span class="av ph">${esc(initialOf(d.name))}</span>`;
+  }
   const n = d.source === 'twitch' ? extra.login : d.name;
   return n ? `<img class="av" src="${BLANK}" alt="" data-s="${d.source}" data-n="${esc(n)}">` : '';
 }
 
-// أسماء الهدايا بالعربي + إيموجي، والمستوى حسب القيمة
+// أسماء الهدايا: [نمط الاسم (إنجليزي/عربي), إيموجي, الاسم بالعربي, السعر بالعملات, لون الهدية]
+// الأكثر تحديداً أول، لأن أول نمط يطابق هو اللي ينقبل
 const GIFTS = [
-  [/hand hearts?/i, '🫶', 'قلوب اليدين'], [/rose/i, '🌹', 'وردة'], [/lion/i, '🦁', 'أسد'], [/universe/i, '🌌', 'يونيفرس'], [/galaxy/i, '🌠', 'قالاكسي'],
-  [/finger heart/i, '🫰', 'قلب الأصابع'], [/doughnut|donut/i, '🍩', 'دونات'], [/perfume/i, '🧴', 'عطر'],
-  [/corgi/i, '🐶', 'كورجي'], [/confetti/i, '🎉', 'كونفيتي'], [/sports car/i, '🏎️', 'سيارة سبورت'],
-  [/money gun/i, '💸', 'مسدس الفلوس'], [/crown/i, '👑', 'تاج'], [/whale/i, '🐋', 'حوت'], [/dragon/i, '🐉', 'تنين'],
-  [/castle/i, '🏰', 'قلعة'], [/rocket/i, '🚀', 'صاروخ'], [/panda/i, '🐼', 'باندا'], [/ice cream/i, '🍦', 'آيس كريم'],
-  [/swan/i, '🦢', 'بجعة'], [/heart/i, '💖', 'قلب'], [/diamond|gem/i, '💎', 'جوهرة'], [/tiktok/i, '🎵', 'تيك توك'],
+  [/interstellar|بين النجوم/i, '🪐', 'بين النجوم', 10000, '#818cf8'],
+  [/universe|الكون/i, '🌌', 'الكون', 34999, '#a78bfa'],
+  [/\blion\b|الأسد|الاسد/i, '🦁', 'الأسد', 29999, '#ffb020'],
+  [/leon/i, '🐱', 'ليون القطة', 4888, '#f59e0b'],
+  [/drama queen|ملكة الدراما/i, '👑', 'ملكة الدراما', 5000, '#e879f9'],
+  [/galaxy|مجرة|قالاكسي/i, '🌠', 'قالاكسي', 1000, '#8b5cf6'],
+  [/jellyfish|قنديل/i, '💫', 'قنديل البحر', 1000, '#22d3ee'],
+  [/train|قطار/i, '🚆', 'قطار', 899, '#fb923c'],
+  [/swan|بجعة/i, '🦢', 'بجعة', 699, '#e0f2fe'],
+  [/whale|حوت/i, '🐋', 'حوت', 500, '#38bdf8'],
+  [/money gun|مسدس/i, '💸', 'مسدس الفلوس', 500, '#34d399'],
+  [/corgi|كورجي/i, '🐶', 'كورجي', 299, '#fbbf24'],
+  [/sunglass|نظارة/i, '🕶️', 'نظارة شمسية', 199, '#fde047'],
+  [/dancing hands|أيادي/i, '🫶', 'أيادي راقصة', 199, '#f9a8d4'],
+  [/night star|نجمة الليل/i, '⭐', 'نجمة الليل', 199, '#c4b5fd'],
+  [/hand hearts?|قلوب اليد|قلب اليد/i, '🫶', 'قلوب اليد', 100, '#ff6bd6'],
+  [/game controller/i, '🎮', 'يد تحكم', 100, '#4ade80'],
+  [/confetti|كونفيتي/i, '🎉', 'كونفيتي', 100, '#fde047'],
+  [/balloon gift box/i, '🎁', 'علبة هدية', 100, '#93c5fd'],
+  [/little wing/i, '🐣', 'جناح صغير', 99, '#fdba74'],
+  [/uae heart/i, '❤️', 'قلب الإمارات', 99, '#f87171'],
+  [/butterfly/i, '🦋', 'فراشة', 88, '#f0abfc'],
+  [/doughnut|donut|دونات/i, '🍩', 'دونات', 30, '#f472b6'],
+  [/perfume|عطر/i, '🧴', 'عطر', 20, '#f9a8d4'],
+  [/rage mode/i, '🌶️', 'وضع الغضب', 20, '#ef4444'],
+  [/tiny blush/i, '😊', 'خجل صغير', 20, '#fda4af'],
+  [/\bhuh\b/i, '🤔', 'هاه؟', 20, '#fde047'],
+  [/\blol\b/i, '😂', 'LOL', 20, '#86efac'],
+  [/no comment/i, '😐', 'بدون تعليق', 20, '#a3e635'],
+  [/bravo/i, '👏', 'برافو', 15, '#5eead4'],
+  [/kudos/i, '⭐', 'تحية لنجمي', 15, '#fcd34d'],
+  [/i like what i see/i, '👽', 'يعجبني ما أرى', 10, '#86efac'],
+  [/record breaker|كاسر اللقب/i, '🏆', 'كاسر اللقب', 10, '#fb923c'],
+  [/\bewc\b/i, '🏆', 'EWC', 10, '#e5e7eb'],
+  [/journey pass/i, '🎫', 'تذكرة الرحلة', 10, '#60a5fa'],
+  [/rosa\b|red rose|وردة حمراء/i, '🌹', 'وردة حمراء', 10, '#ff2d55'],
+  [/finger heart|قلب الأصابع/i, '🫰', 'قلب الأصابع', 5, '#ff8fab'],
+  [/encore ticket/i, '🎟️', 'تذكرة الإعادة', 5, '#f87171'],
+  [/rose|وردة/i, '🌹', 'وردة', 1, '#ff4d6d'],
+  [/heart me/i, '💖', 'قلب لي', 1, '#fb7185'],
+  [/love ksa/i, '💚', 'حب السعودية', 1, '#4ade80'],
+  [/\bgg\b/i, '🎮', 'GG', 1, '#c084fc'],
+  [/treasure box/i, '🧰', 'صندوق الكنز', 0, '#fbbf24'],
+  [/good morning/i, '☕', 'صباح الخير', 0, '#fdba74'],
+  [/ice cream/i, '🍦', 'آيس كريم', 0, '#f9a8d4'],
+  [/tiktok/i, '🎵', 'تيك توك', 1, '#25f4ee'],
+  [/heart|قلب/i, '💖', 'قلب', 0, '#fb7185'],
 ];
 function giftInfo(name, id) {
   const g = GIFTS.find(x => x[0].test(name || ''));
-  return g ? { emoji: g[1], ar: g[2] } : { emoji: '🎁', ar: name || (id ? 'هدية #' + id : 'هدية') };
+  return g ? { emoji: g[1], ar: g[2], coins: g[3], col: g[4] }
+           : { emoji: '🎁', ar: name || (id ? 'هدية #' + id : 'هدية'), coins: 0, col: '#ffb020' };
 }
-// غيّر الأرقام هنا لو تبي المستويات تتغير
+// غيّر الأرقام هنا لو تبي المستويات تتغير (القيمة بالعملات)
 const tier = n => n >= 10000 ? 't4' : n >= 1000 ? 't3' : n >= 100 ? 't2' : n >= 10 ? 't1' : 't0';
 
-function add(d, cls, html, extra = {}) {
+function add(d, cls, html, extra = {}, style = '') {
   const near = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
   const el = document.createElement('div');
   el.className = 'msg ' + cls; el.dataset.src = d.source;
+  if (style) el.style.cssText = style;
   Object.assign(el.dataset, extra);
   const mod = extra.uid ? `
       <button data-act="ban" title="حظر">${ICON.ban}</button><button data-act="to" title="تايم أوت 10 دقايق">${ICON.clock}</button>
@@ -341,9 +395,11 @@ function render(d) {
   switch (d.type) {
     case 'chat': add(d, 'chat', badgesHtml(d) + nm(d, 1) + '<span class="txt">' + (d.source === 'kick' ? fmtKick(d.text) : linkify(d.text)) + '</span>'); break;
     case 'gift': {
-      const g = giftInfo(d.gift, d.giftId), t = tier(d.diamonds || 0), fire = t === 't4' ? '🔥🔥 ' : t === 't3' ? '🔥 ' : '';
+      const g = giftInfo(d.gift, d.giftId), cnt = d.count || 1;
+      const coins = d.diamonds || g.coins * cnt;
+      const t = tier(coins), fire = t === 't4' ? '🔥🔥 ' : t === 't3' ? '🔥 ' : '';
       const pic = d.icon ? `<img class="gi" src="${esc(d.icon)}" alt="" onerror="this.outerHTML='<span class=&quot;ge&quot;>${g.emoji}</span>'">` : `<span class="ge">${g.emoji}</span>`;
-      add(d, 'gift ' + t, `${fire}${n}<span class="big" title="${esc(d.gift)}">أرسل ${esc(g.ar)}</span> ${pic}<span class="cnt">×${d.count}</span> <span class="ev">(${num(d.diamonds)} 💎)</span>`);
+      add(d, 'gift ' + t, `${fire}${n}<span class="big" title="${esc(d.gift)}">أرسل ${esc(g.ar)}</span> ${pic}<span class="cnt">×${cnt}</span>${coins ? ` <span class="ev">(${num(coins)} 🪙)</span>` : ''}`, {}, `--ga:${g.col}`);
       break; }
     case 'join': {
       const k = d.id || d.name, now = Date.now();
