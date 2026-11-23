@@ -117,7 +117,8 @@ setInterval(ttFollowers, 120000);
 
 // قائمة الهدايا (اسم + صورة + سعر) نستخدمها لو الهدية جت بدون اسم
 async function loadGifts() {
-  if (!tt || !tt.fetchAvailableGifts || Object.keys(giftMap).length) return;
+  // قائمة الهدايا تحتاج خطة Business في Euler، فنعطلها إلا لو حطيت TIKTOK_LOAD_GIFTS=1
+  if (process.env.TIKTOK_LOAD_GIFTS !== '1' || !tt || !tt.fetchAvailableGifts || Object.keys(giftMap).length) return;
   try {
     const r = await tt.fetchAvailableGifts();
     const arr = Array.isArray(r) ? r : (r?.gifts || r?.data?.gifts || []);
