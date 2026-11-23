@@ -94,6 +94,25 @@ setInterval(async () => {
   try { applyRoom(await tt.fetchRoomInfo()); } catch {}
 }, 20000);
 
+// عدد المتابعين: نقرأه من صفحة الحساب العامة في تيك توك (يشتغل حتى لو البث أوفلاين)
+const ttFollowDbg = {};
+async function ttFollowers() {
+  try {
+    const r = await fetch(`https://www.tiktok.com/@${encodeURIComponent(CFG.tiktok)}`, {
+      headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' },
+      signal: AbortSignal.timeout(12000),
+    });
+    const html = await r.text();
+    const m = html.match(/"followerCount":\s*(\d+)/);
+    Object.assign(ttFollowDbg, { at: new Date().toISOString(), http: r.status, found: m ? +m[1] : null, htmlLength: html.length });
+    if (m) stat('tiktok', { followers: +m[1] });
+  } catch (e) {
+    Object.assign(ttFollowDbg, { at: new Date().toISOString(), error: String(e.message || e) });
+  }
+}
+ttFollowers();
+setInterval(ttFollowers, 120000);
+
 // قائمة الهدايا (اسم + صورة + سعر) نستخدمها لو الهدية جت بدون اسم
 async function loadGifts() {
   if (!tt || !tt.fetchAvailableGifts || Object.keys(giftMap).length) return;
@@ -291,7 +310,7 @@ http.createServer((req, res) => {
   }
   if (url.pathname === '/debug') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify({ tiktokStats: stats.tiktok, giftListSize: Object.keys(giftMap).length, samples: dbgBuf }, bigRep, 1));
+    return res.end(JSON.stringify({ tiktokStats: stats.tiktok, followersFetch: ttFollowDbg, giftListSize: Object.keys(giftMap).length, samples: dbgBuf }, bigRep, 1));
   }
   if (url.pathname === '/img') {
     let u; try { u = new URL(url.searchParams.get('u') || ''); } catch { res.writeHead(400); return res.end(); }
