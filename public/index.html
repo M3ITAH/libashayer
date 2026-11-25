@@ -104,6 +104,18 @@
   .pin .unpin { position:absolute; right:6px; top:6px; border:0; background:none; color:var(--muted); cursor:pointer; font-size:14px; }
   .pin .unpin:hover { color:#fff; }
   .pin .pinic { margin-right:6px; }
+  /* ===== أكثر ناس ضغطوا قلب (فوق يمين) ===== */
+  body { position:relative; }
+  #likers { position:absolute; right:22px; top:120px; z-index:5; width:215px; direction:rtl; background:rgba(20,17,31,.9); border:1px solid var(--line); border-radius:12px; padding:6px 10px; font-size:13px; box-shadow:0 4px 14px rgba(0,0,0,.35); }
+  #likers[hidden] { display:none; }
+  #likers .lh { display:flex; align-items:center; justify-content:space-between; gap:6px; font-weight:700; color:var(--gift); }
+  #likers .lh button { font:inherit; border:0; background:none; color:var(--muted); cursor:pointer; padding:2px 6px; border-radius:6px; }
+  #likers .lh button:hover { background:var(--line); color:#fff; }
+  #likers .lr { display:flex; align-items:center; gap:6px; padding:3px 0; min-width:0; }
+  #likers .lm { width:20px; text-align:center; flex:none; }
+  #likers .ln { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; unicode-bidi:plaintext; }
+  #likers .lc { color:var(--red); font-weight:700; flex:none; }
+  #likers .lt { margin-top:3px; padding-top:4px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
 </style>
 </head>
 <body>
@@ -126,6 +138,7 @@
 <div id="pins" hidden></div>
 <main id="feed" data-f="all" aria-live="polite"></main>
 <footer id="bar"></footer>
+<div id="likers" hidden></div>
 <div id="toast"></div>
 
 <script>
@@ -427,9 +440,32 @@ function startServerFeed() {
   const es = new EventSource('/events');
   es.onmessage = ev => {
     const d = JSON.parse(ev.data);
-    if (d.type === 'stats') { Object.assign(S[d.source], d); renderStats(); } else render(d);
+    if (d.type === 'stats') { Object.assign(S[d.source], d); renderStats(); }
+    else if (d.type === 'likers') renderLikers(d);
+    else render(d);
   };
 }
+
+// ---------- أكثر ناس ضغطوا قلب في تيك توك (صندوق فوق يمين، تقدر تخفيه وتظهره) ----------
+const LK = { list: [], total: 0 };
+let lkHide = store.get('lk_hide') === '1';
+function placeLikers() { $('#likers').style.top = (feed.offsetTop + 6) + 'px'; }
+function renderLikers(d) {
+  if (d) { LK.list = d.list || []; LK.total = d.total || 0; }
+  const box = $('#likers');
+  box.hidden = !LK.list.length;
+  const medal = ['🥇', '🥈', '🥉', '4', '5'];
+  box.innerHTML = `<div class="lh"><span>❤️ أكثر ضغطاً (تيك توك)</span><button id="lkBtn" type="button" title="${lkHide ? 'إظهار' : 'إخفاء'}">${lkHide ? '▾' : '✕'}</button></div>`
+    + (lkHide ? '' : LK.list.map((x, i) => `<div class="lr"><span class="lm">${medal[i]}</span>${avatarHtml({ source: 'tiktok', avatar: x.avatar, name: x.name })}<span class="ln">${esc(x.name)}</span><span class="lc">${num(x.count)}</span></div>`).join('')
+      + (LK.total ? `<div class="lt">إجمالي القلوب: ${num(LK.total)}</div>` : ''));
+  placeLikers();
+}
+$('#likers').onclick = e => {
+  if (!e.target.closest('#lkBtn')) return;
+  lkHide = !lkHide; store.set('lk_hide', lkHide ? '1' : '0'); renderLikers();
+};
+new ResizeObserver(placeLikers).observe(feed);
+placeLikers();
 
 // ---------- تويتش: قراءة الشات (بدون تسجيل دخول) ----------
 let histLoaded = false;
