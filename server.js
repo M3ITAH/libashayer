@@ -37,12 +37,27 @@ let giftMap = {};
 let ttRoomId = '';
 let lastTT = Date.now(); // آخر وقت وصل فيه حدث من تيك توك (للمراقب)
 
+// أكثر الناس ضغطاً على القلب (لايك) في البث الحالي. يتصفّر لما يبدأ بث جديد
+const likers = new Map();
+let likeTotal = 0, likersDirty = false;
+const likersMsg = () => ({
+  type: 'likers', total: likeTotal,
+  list: [...likers.values()].sort((a, b) => b.count - a.count).slice(0, 5)
+    .map(x => ({ id: x.id, name: x.name, avatar: x.avatar, count: x.count })),
+});
+setInterval(() => { // نرسل التحديث كل 2 ثانية بس عشان ما نزحم الصفحة
+  if (!likersDirty) return;
+  likersDirty = false;
+  const line = `data: ${JSON.stringify(likersMsg())}\n\n`;
+  for (const r of clients) r.write(line);
+}, 2000);
+
 // طباعة آمنة (بيانات تيك توك فيها أرقام BigInt تكسر JSON.stringify العادي)
 const bigRep = (k, v) => (typeof v === 'bigint' ? v.toString() : v);
 const clone = o => { try { return JSON.parse(JSON.stringify(o, bigRep)); } catch { return String(o); } };
 
 // آخر عينات من بيانات تيك توك الخام، تنعرض في /debug عشان نتأكد من الحقول
-const dbgBuf = { chat: [], gift: [], member: [], roomUser: [], room: [], giftList: [] };
+const dbgBuf = { chat: [], gift: [], member: [], roomUser: [], room: [], giftList: [], like: [] };
 const dbgAt = {};
 function dbgPush(kind, raw, parsed) {
   const a = dbgBuf[kind], now = Date.now();
@@ -163,6 +178,22 @@ function ttConnect() {
   });
   tt.on(ev('FOLLOW', 'follow'), d => emit({ ...tu(d), type: 'follow' }));
   tt.on(ev('SHARE', 'share'), d => emit({ ...tu(d), type: 'share' }));
+  tt.on(ev('LIKE', 'like'), d => {
+    lastTT = Date.now();
+    const n = findNum(d, ['likeCount', 'like_count']) || 1;
+    const tot = findNum(d, ['totalLikeCount', 'total_like_count']);
+    if (tot !== undefined && tot > likeTotal) likeTotal = tot;
+    const u = tu(d);
+    dbgPush('like', d, { ...u, n, tot });
+    const key = u.uid || u.id;
+    if (!key) return;
+    const cur = likers.get(key) || { id: u.id, name: u.name, avatar: u.avatar, count: 0 };
+    cur.count += n;
+    cur.name = u.name || cur.name;
+    if (u.avatar) cur.avatar = u.avatar;
+    likers.set(key, cur);
+    likersDirty = true;
+  });
   tt.on(ev('SUBSCRIBE', 'subscribe'), d => emit({ ...tu(d), type: 'sub' }));
   tt.on(ev('MEMBER', 'member'), d => { lastTT = Date.now(); const u = tu(d); dbgPush('member', d, u); emit({ ...u, type: 'join' }); });
   tt.on(ev('ROOM_USER', 'roomUser'), d => {
@@ -181,7 +212,9 @@ function ttConnect() {
   });
 
   tt.connect().then(s => {
-    ttRoomId = String(s.roomId ?? tt.roomId ?? s.roomInfo?.id_str ?? s.roomInfo?.id ?? '');
+    const rid = String(s.roomId ?? tt.roomId ?? s.roomInfo?.id_str ?? s.roomInfo?.id ?? '');
+    if (rid && rid !== ttRoomId) { likers.clear(); likeTotal = 0; likersDirty = true; } // بث جديد
+    ttRoomId = rid;
     lastTT = Date.now();
     stat('tiktok', { status: 'متصل', live: true });
     applyRoom(s.roomInfo);
@@ -316,6 +349,7 @@ http.createServer((req, res) => {
   if (url.pathname === '/events') {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     for (const s of Object.keys(stats)) res.write(`data: ${JSON.stringify({ type: 'stats', source: s, ...stats[s] })}\n\n`);
+    res.write(`data: ${JSON.stringify(likersMsg())}\n\n`);
     for (const h of history) res.write(`data: ${JSON.stringify(h)}\n\n`);
     clients.add(res);
     req.on('close', () => clients.delete(res));
