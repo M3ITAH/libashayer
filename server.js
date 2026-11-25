@@ -35,6 +35,7 @@ let tt = null;
 let ttTimer = null;
 let giftMap = {};
 let ttRoomId = '';
+let lastTT = Date.now(); // آخر وقت وصل فيه حدث من تيك توك (للمراقب)
 
 // طباعة آمنة (بيانات تيك توك فيها أرقام BigInt تكسر JSON.stringify العادي)
 const bigRep = (k, v) => (typeof v === 'bigint' ? v.toString() : v);
@@ -139,11 +140,13 @@ function ttConnect() {
 
   tt.on(ev('CHAT', 'chat'), d => {
     const text = d.comment || d.content || d.msg || d.text || d.message?.content || '';
+    lastTT = Date.now();
     const u = tu(d);
     dbgPush('chat', d, { ...u, text });
     emit({ ...u, type: 'chat', text });
   });
   tt.on(ev('GIFT', 'gift'), d => {
+    lastTT = Date.now();
     const g = d.giftDetails || d.gift || {};
     const id = String(d.giftId ?? g.id ?? g.giftId ?? '');
     const m = giftMap[id] || {};
@@ -161,13 +164,17 @@ function ttConnect() {
   tt.on(ev('FOLLOW', 'follow'), d => emit({ ...tu(d), type: 'follow' }));
   tt.on(ev('SHARE', 'share'), d => emit({ ...tu(d), type: 'share' }));
   tt.on(ev('SUBSCRIBE', 'subscribe'), d => emit({ ...tu(d), type: 'sub' }));
-  tt.on(ev('MEMBER', 'member'), d => { const u = tu(d); dbgPush('member', d, u); emit({ ...u, type: 'join' }); });
+  tt.on(ev('MEMBER', 'member'), d => { lastTT = Date.now(); const u = tu(d); dbgPush('member', d, u); emit({ ...u, type: 'join' }); });
   tt.on(ev('ROOM_USER', 'roomUser'), d => {
+    lastTT = Date.now();
     const v = findNum(d, ['viewerCount', 'viewer_count', 'userCount', 'user_count', 'total']);
     dbgPush('roomUser', d, { viewers: v });
     stat('tiktok', v !== undefined ? { viewers: v, live: true } : { live: true });
   });
-  tt.on(ev('STREAM_END', 'streamEnd'), () => stat('tiktok', { status: 'انتهى البث', live: false }));
+  tt.on(ev('STREAM_END', 'streamEnd'), () => {
+    stat('tiktok', { status: 'انتهى البث', live: false });
+    ttRetry(10000); // يرجع يحاول لين يبدأ بث جديد
+  });
   tt.on((ControlEvent && ControlEvent.DISCONNECTED) || 'disconnected', () => {
     stat('tiktok', { status: 'انقطع الاتصال', live: false });
     ttRetry(5000);
@@ -175,6 +182,7 @@ function ttConnect() {
 
   tt.connect().then(s => {
     ttRoomId = String(s.roomId ?? tt.roomId ?? s.roomInfo?.id_str ?? s.roomInfo?.id ?? '');
+    lastTT = Date.now();
     stat('tiktok', { status: 'متصل', live: true });
     applyRoom(s.roomInfo);
     loadGifts();
@@ -185,6 +193,15 @@ function ttConnect() {
   });
 }
 ttConnect();
+
+// مراقب: لو الاتصال يبان شغال بس ما وصل أي حدث 3 دقايق، نعيد الاتصال
+setInterval(() => {
+  if (stats.tiktok.live && Date.now() - lastTT > 180000) {
+    console.log('tiktok watchdog: لا أحداث منذ 3 دقايق، إعادة اتصال');
+    lastTT = Date.now();
+    ttConnect();
+  }
+}, 60000);
 
 // ---------------- Kick ----------------
 let kickId = CFG.kickRoom;
